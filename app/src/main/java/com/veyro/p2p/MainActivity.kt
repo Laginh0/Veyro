@@ -731,7 +731,9 @@ private fun VeyroDrawer(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
             )
-            VeyroDestination.entries.forEach { destination ->
+            VeyroDestination.entries
+                .filterNot { it == VeyroDestination.RESOURCES }
+                .forEach { destination ->
                 NavigationDrawerItem(
                     selected = destination == selected,
                     onClick = { onSelected(destination) },
