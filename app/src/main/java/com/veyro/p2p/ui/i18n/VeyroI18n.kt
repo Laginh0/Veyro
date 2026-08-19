@@ -266,6 +266,7 @@ object VeyroI18n {
         "Contato sem nome" to "Unnamed contact",
         "Importar" to "Import",
         "Cronômetro parado" to "Timer stopped",
+        "Zerar cronômetro" to "Reset timer",
         "Anterior" to "Previous",
         "Próximo" to "Next",
         "Parar" to "Stop",

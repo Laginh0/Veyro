@@ -2633,6 +2633,14 @@ private fun PresentationPanel(
                     }
                 ) { Text(if (blackedOut) "Restaurar tela" else "Tela preta") }
             }
+            TextButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    elapsedMillis = 0L
+                    if (running) startedAt = SystemClock.elapsedRealtime()
+                    onPresentationAction(PresentationAction.PRESENTATION_TIMER_SYNC, 0L)
+                }
+            ) { Text("Zerar cronômetro") }
         }
     }
 }
