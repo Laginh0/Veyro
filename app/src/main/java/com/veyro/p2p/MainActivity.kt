@@ -53,6 +53,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,16 +66,22 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,6 +91,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -129,12 +138,14 @@ import com.veyro.p2p.protocol.TelecommunicationType
 import com.veyro.p2p.protocol.RemoteInputCommand
 import com.veyro.p2p.settings.EnergyMode
 import com.veyro.p2p.settings.AppLanguage
+import com.veyro.p2p.settings.FeatureSettings
 import com.veyro.p2p.settings.TrustedDeviceRules
 import com.veyro.p2p.ui.i18n.VeyroI18n
 import com.veyro.p2p.ui.theme.VeyroTheme
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -237,6 +248,7 @@ class MainActivity : ComponentActivity() {
                 onRemoveTrustedDevice = nearbyViewModel::removeTrustedDevice,
                 onSetEnergyMode = nearbyViewModel::setEnergyMode,
                 onSetAppLanguage = nearbyViewModel::setAppLanguage,
+                onSetFeatureSettings = nearbyViewModel::setFeatureSettings,
                 onStopSession = nearbyViewModel::stopSession
             )
         }
@@ -335,6 +347,7 @@ private fun VeyroApp(
     onRemoveTrustedDevice: (String) -> Unit,
     onSetEnergyMode: (EnergyMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
+    onSetFeatureSettings: (FeatureSettings) -> Unit,
     onStopSession: () -> Unit
 ) {
     var showPermissionExplanation by remember { mutableStateOf(!permissionsGranted) }
@@ -377,6 +390,7 @@ private fun VeyroApp(
                 onRemoveTrustedDevice = onRemoveTrustedDevice,
                 onSetEnergyMode = onSetEnergyMode,
                 onSetAppLanguage = onSetAppLanguage,
+                onSetFeatureSettings = onSetFeatureSettings,
                 onStopSession = onStopSession
             )
 
@@ -440,6 +454,7 @@ private fun VeyroScreen(
     onRemoveTrustedDevice: (String) -> Unit,
     onSetEnergyMode: (EnergyMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
+    onSetFeatureSettings: (FeatureSettings) -> Unit,
     onStopSession: () -> Unit
 ) {
     if (!permissionsGranted) {
@@ -497,55 +512,92 @@ private fun VeyroScreen(
                     onRemoveTrustedDevice = onRemoveTrustedDevice,
                     onSetEnergyMode = onSetEnergyMode,
                     onSetAppLanguage = onSetAppLanguage,
+                    onSetFeatureSettings = onSetFeatureSettings,
                     onStopSession = onStopSession
                 )
             }
         } else {
-            Scaffold(
-                bottomBar = {
-                    VeyroNavigationBar(
+            val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+            val drawerScope = rememberCoroutineScope()
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    VeyroDrawer(
                         selected = selectedDestination,
-                        onSelected = { selectedDestinationOrdinal = it.ordinal }
+                        uiState = nearbyUiState,
+                        onSelected = { destination ->
+                            selectedDestinationOrdinal = destination.ordinal
+                            drawerScope.launch { drawerState.close() }
+                        },
+                        onStartPairing = {
+                            selectedDestinationOrdinal = VeyroDestination.ECOSYSTEM.ordinal
+                            onStartDiscovery()
+                            drawerScope.launch { drawerState.close() }
+                        }
                     )
                 }
-            ) { innerPadding ->
-                VeyroDestinationContent(
-                    modifier = Modifier.padding(innerPadding),
-                    destination = selectedDestination,
-                    nearbyUiState = nearbyUiState,
-                    onStartAdvertising = onStartAdvertising,
-                    onStartDiscovery = onStartDiscovery,
-                    onRequestConnection = onRequestConnection,
-                    onSendCommand = onSendCommand,
-                    onStartRemoteFindAlarm = onStartRemoteFindAlarm,
-                    onStopRemoteFindAlarm = onStopRemoteFindAlarm,
-                    notificationListenerGranted = notificationListenerGranted,
-                    notificationPolicyGranted = notificationPolicyGranted,
-                    telephonyPermissionsGranted = telephonyPermissionsGranted,
-                    callScreeningRoleGranted = callScreeningRoleGranted,
-                    cameraPermissionGranted = cameraPermissionGranted,
-                    remoteInputAccessibilityGranted = remoteInputAccessibilityGranted,
-                    onRequestTelephonyPermissions = onRequestTelephonyPermissions,
-                    onRequestCallScreeningRole = onRequestCallScreeningRole,
-                    onRequestCameraPermission = onRequestCameraPermission,
-                    onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                    onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
-                    onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
-                    onDismissRemoteNotification = onDismissRemoteNotification,
-                    onMediaControlCommand = onMediaControlCommand,
-                    onSendSmsTransmitOrder = onSendSmsTransmitOrder,
-                    onSendSafeCustomCommand = onSendSafeCustomCommand,
-                    onShareUrl = onShareUrl,
-                    onRemoteInput = onRemoteInput,
-                    onPickFile = onPickFile,
-                    onApproveIncomingFile = onApproveIncomingFile,
-                    onRejectIncomingFile = onRejectIncomingFile,
-                    onUpdateTrustedDeviceRules = onUpdateTrustedDeviceRules,
-                    onRemoveTrustedDevice = onRemoveTrustedDevice,
-                    onSetEnergyMode = onSetEnergyMode,
-                    onSetAppLanguage = onSetAppLanguage,
-                    onStopSession = onStopSession
-                )
+            ) {
+                Scaffold(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    bottomBar = {
+                        VeyroNavigationBar(
+                            selected = selectedDestination,
+                            onSelected = { selectedDestinationOrdinal = it.ordinal }
+                        )
+                    }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .background(MaterialTheme.colorScheme.surface)
+                    ) {
+                        VeyroDestinationContent(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = 56.dp),
+                            destination = selectedDestination,
+                            nearbyUiState = nearbyUiState,
+                            onStartAdvertising = onStartAdvertising,
+                            onStartDiscovery = onStartDiscovery,
+                            onRequestConnection = onRequestConnection,
+                            onSendCommand = onSendCommand,
+                            onStartRemoteFindAlarm = onStartRemoteFindAlarm,
+                            onStopRemoteFindAlarm = onStopRemoteFindAlarm,
+                            notificationListenerGranted = notificationListenerGranted,
+                            notificationPolicyGranted = notificationPolicyGranted,
+                            telephonyPermissionsGranted = telephonyPermissionsGranted,
+                            callScreeningRoleGranted = callScreeningRoleGranted,
+                            cameraPermissionGranted = cameraPermissionGranted,
+                            remoteInputAccessibilityGranted = remoteInputAccessibilityGranted,
+                            onRequestTelephonyPermissions = onRequestTelephonyPermissions,
+                            onRequestCallScreeningRole = onRequestCallScreeningRole,
+                            onRequestCameraPermission = onRequestCameraPermission,
+                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                            onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
+                            onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
+                            onDismissRemoteNotification = onDismissRemoteNotification,
+                            onMediaControlCommand = onMediaControlCommand,
+                            onSendSmsTransmitOrder = onSendSmsTransmitOrder,
+                            onSendSafeCustomCommand = onSendSafeCustomCommand,
+                            onShareUrl = onShareUrl,
+                            onRemoteInput = onRemoteInput,
+                            onPickFile = onPickFile,
+                            onApproveIncomingFile = onApproveIncomingFile,
+                            onRejectIncomingFile = onRejectIncomingFile,
+                            onUpdateTrustedDeviceRules = onUpdateTrustedDeviceRules,
+                            onRemoveTrustedDevice = onRemoveTrustedDevice,
+                            onSetEnergyMode = onSetEnergyMode,
+                            onSetAppLanguage = onSetAppLanguage,
+                            onSetFeatureSettings = onSetFeatureSettings,
+                            onStopSession = onStopSession
+                        )
+                        VeyroCompactTopBar(
+                            modifier = Modifier.align(Alignment.TopStart),
+                            onOpenDrawer = { drawerScope.launch { drawerState.open() } }
+                        )
+                    }
+                }
             }
         }
     }
@@ -557,7 +609,8 @@ private enum class VeyroDestination(
 ) {
     ECOSYSTEM("Ecossistema", Icons.Default.Hub),
     RESOURCES("Recursos", Icons.Default.Devices),
-    SETTINGS("Definições", Icons.Default.Settings)
+    SETTINGS("Configurações", Icons.Default.Settings),
+    ABOUT("Sobre", Icons.Default.Info)
 }
 
 private data class EcosystemActivity(
@@ -606,12 +659,115 @@ private fun PermissionWelcome(onRequestPermissions: () -> Unit) {
 }
 
 @Composable
+private fun VeyroCompactTopBar(
+    modifier: Modifier = Modifier,
+    onOpenDrawer: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .size(56.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        IconButton(onClick = onOpenDrawer) {
+            Icon(Icons.Default.Menu, contentDescription = "Abrir menu")
+        }
+    }
+}
+
+@Composable
+private fun VeyroDrawer(
+    selected: VeyroDestination,
+    uiState: NearbyClientUiState,
+    onSelected: (VeyroDestination) -> Unit,
+    onStartPairing: () -> Unit
+) {
+    ModalDrawerSheet(modifier = Modifier.widthIn(max = 340.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(top = 28.dp, bottom = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(54.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.veyro_logo_color),
+                        contentDescription = "Veyro",
+                        modifier = Modifier.padding(9.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                Spacer(modifier = Modifier.size(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Veyro", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        Build.MODEL,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        when (uiState.connectionStage) {
+                            ConnectionStage.CONNECTED -> "Conectado agora"
+                            ConnectionStage.ACTIVE,
+                            ConnectionStage.ADVERTISING,
+                            ConnectionStage.DISCOVERING -> "Ecossistema ativo"
+                            else -> "Pronto para conectar"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Text(
+                "NAVEGAÇÃO",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+            VeyroDestination.entries.forEach { destination ->
+                NavigationDrawerItem(
+                    selected = destination == selected,
+                    onClick = { onSelected(destination) },
+                    icon = { Icon(destination.icon, contentDescription = null) },
+                    label = { Text(destination.label, fontWeight = FontWeight.SemiBold) },
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            FilledTonalButton(
+                onClick = onStartPairing,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Hub, contentDescription = null)
+                Spacer(modifier = Modifier.size(10.dp))
+                Text("Conectar novo aparelho")
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                "Veyro ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(12.dp, 20.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun VeyroNavigationBar(
     selected: VeyroDestination,
     onSelected: (VeyroDestination) -> Unit
 ) {
     NavigationBar {
-        VeyroDestination.entries.forEach { destination ->
+        listOf(VeyroDestination.ECOSYSTEM, VeyroDestination.RESOURCES).forEach { destination ->
             NavigationBarItem(
                 selected = destination == selected,
                 onClick = { onSelected(destination) },
@@ -702,6 +858,7 @@ private fun VeyroDestinationContent(
     onRemoveTrustedDevice: (String) -> Unit,
     onSetEnergyMode: (EnergyMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
+    onSetFeatureSettings: (FeatureSettings) -> Unit,
     onStopSession: () -> Unit
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
@@ -755,8 +912,11 @@ private fun VeyroDestinationContent(
                 onUpdateTrustedDeviceRules = onUpdateTrustedDeviceRules,
                 onRemoveTrustedDevice = onRemoveTrustedDevice,
                 onSetEnergyMode = onSetEnergyMode,
-                onSetAppLanguage = onSetAppLanguage
+                onSetAppLanguage = onSetAppLanguage,
+                onSetFeatureSettings = onSetFeatureSettings
             )
+
+            VeyroDestination.ABOUT -> AboutPage()
         }
     }
 }
@@ -789,6 +949,60 @@ private fun EcosystemPage(
         )
         Spacer(modifier = Modifier.height(24.dp))
         EcosystemActivityFeed(uiState)
+    }
+}
+
+@Composable
+private fun AboutPage() {
+    VeyroPage {
+        PageHeader(
+            eyebrow = "VEYRO",
+            title = "Sobre o Veyro",
+            subtitle = "Conexões diretas, privadas e sob o seu controle."
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.veyro_logo_color),
+                    contentDescription = "Veyro",
+                    modifier = Modifier.size(104.dp),
+                    contentScale = ContentScale.Fit
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Veyro", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    BuildConfig.VERSION_NAME,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text("Feito para o seu ecossistema", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "O Veyro conecta seus aparelhos localmente para compartilhar arquivos, estados e controles sem depender de uma nuvem.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+                Text("Privacidade por padrão", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Cada conexão é confirmada por PIN e cada recurso pode ser desligado individualmente.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 
@@ -891,14 +1105,20 @@ private fun SettingsPage(
     onUpdateTrustedDeviceRules: (TrustedDeviceRules) -> Unit,
     onRemoveTrustedDevice: (String) -> Unit,
     onSetEnergyMode: (EnergyMode) -> Unit,
-    onSetAppLanguage: (AppLanguage) -> Unit
+    onSetAppLanguage: (AppLanguage) -> Unit,
+    onSetFeatureSettings: (FeatureSettings) -> Unit
 ) {
     VeyroPage {
         PageHeader(
-            eyebrow = "DEFINIÇÕES",
-            title = "Controle e privacidade",
-            subtitle = "Revise os acessos usados por cada recurso do ecossistema."
+            eyebrow = "CONFIGURAÇÕES",
+            title = "Central de controle",
+            subtitle = "Escolha como cada parte do seu ecossistema deve funcionar."
         )
+        FeatureSettingsPanel(
+            settings = uiState.featureSettings,
+            onSettingsChange = onSetFeatureSettings
+        )
+        Spacer(modifier = Modifier.height(16.dp))
         EnergyModePanel(
             selectedMode = uiState.energyMode,
             onSelectMode = onSetEnergyMode
@@ -915,21 +1135,24 @@ private fun SettingsPage(
             onUpdateRules = onUpdateTrustedDeviceRules,
             onRemoveDevice = onRemoveTrustedDevice
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        FeatureAccessCard(
-            notificationListenerGranted = notificationListenerGranted,
-            notificationPolicyGranted = notificationPolicyGranted,
-            telephonyPermissionsGranted = telephonyPermissionsGranted,
-            callScreeningRoleGranted = callScreeningRoleGranted,
-            cameraPermissionGranted = cameraPermissionGranted,
-            remoteInputAccessibilityGranted = remoteInputAccessibilityGranted,
-            onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
-            onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
-            onRequestTelephonyPermissions = onRequestTelephonyPermissions,
-            onRequestCallScreeningRole = onRequestCallScreeningRole,
-            onRequestCameraPermission = onRequestCameraPermission,
-            onOpenAccessibilitySettings = onOpenAccessibilitySettings
-        )
+        if (uiState.featureSettings.requiresSpecialAccess) {
+            Spacer(modifier = Modifier.height(16.dp))
+            FeatureAccessCard(
+                featureSettings = uiState.featureSettings,
+                notificationListenerGranted = notificationListenerGranted,
+                notificationPolicyGranted = notificationPolicyGranted,
+                telephonyPermissionsGranted = telephonyPermissionsGranted,
+                callScreeningRoleGranted = callScreeningRoleGranted,
+                cameraPermissionGranted = cameraPermissionGranted,
+                remoteInputAccessibilityGranted = remoteInputAccessibilityGranted,
+                onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
+                onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
+                onRequestTelephonyPermissions = onRequestTelephonyPermissions,
+                onRequestCallScreeningRole = onRequestCallScreeningRole,
+                onRequestCameraPermission = onRequestCameraPermission,
+                onOpenAccessibilitySettings = onOpenAccessibilitySettings
+            )
+        }
         Spacer(modifier = Modifier.height(16.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -945,6 +1168,179 @@ private fun SettingsPage(
                 SettingsPrinciple("Temporária", "Encerrar a sessão interrompe o canal e as sincronizações.")
             }
         }
+    }
+}
+
+@Composable
+private fun FeatureSettingsPanel(
+    settings: FeatureSettings,
+    onSettingsChange: (FeatureSettings) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.size(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Recursos do ecossistema", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "${settings.enabledCount} de 9 ativos",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            FeatureCategoryLabel("CONTINUIDADE")
+            FeatureToggleRow(
+                title = "Transferência de arquivos",
+                detail = "Envie, receba e aprove arquivos entre aparelhos.",
+                checked = settings.fileTransfer,
+                icon = Icons.Default.Devices,
+                onCheckedChange = { onSettingsChange(settings.copy(fileTransfer = it)) }
+            )
+            FeatureToggleRow(
+                title = "Estado da bateria",
+                detail = "Compartilhe carga e fonte de energia durante a conexão.",
+                checked = settings.batterySync,
+                icon = Icons.Default.Hub,
+                onCheckedChange = { onSettingsChange(settings.copy(batterySync = it)) }
+            )
+            FeatureToggleRow(
+                title = "Links compartilhados",
+                detail = "Envie links que só abrem após um toque no destino.",
+                checked = settings.sharedLinks,
+                icon = Icons.Default.Hub,
+                onCheckedChange = { onSettingsChange(settings.copy(sharedLinks = it)) }
+            )
+
+            FeatureCategoryLabel("MÍDIA E COMUNICAÇÃO")
+            FeatureToggleRow(
+                title = "Sincronizar notificações",
+                detail = "Mostre e descarte notificações do aparelho conectado.",
+                checked = settings.notificationSync,
+                icon = Icons.Default.AutoAwesome,
+                onCheckedChange = { onSettingsChange(settings.copy(notificationSync = it)) }
+            )
+            FeatureToggleRow(
+                title = "Controle de mídia",
+                detail = "Acompanhe e controle a reprodução remotamente.",
+                checked = settings.mediaControl,
+                icon = Icons.Default.AutoAwesome,
+                onCheckedChange = { onSettingsChange(settings.copy(mediaControl = it)) }
+            )
+            FeatureToggleRow(
+                title = "Chamadas e SMS",
+                detail = "Sincronize eventos e confirme localmente cada SMS.",
+                checked = settings.telephonySync,
+                icon = Icons.Default.Devices,
+                onCheckedChange = { onSettingsChange(settings.copy(telephonySync = it)) }
+            )
+
+            FeatureCategoryLabel("ACESSO REMOTO")
+            FeatureToggleRow(
+                title = "Encontrar aparelho",
+                detail = "Permita solicitar um alarme no aparelho conectado.",
+                checked = settings.findDevice,
+                icon = Icons.Default.Hub,
+                onCheckedChange = { onSettingsChange(settings.copy(findDevice = it)) }
+            )
+            FeatureToggleRow(
+                title = "Ações remotas seguras",
+                detail = "Controle volume e lanterna com comandos nativos.",
+                checked = settings.safeCommands,
+                icon = Icons.Default.Settings,
+                onCheckedChange = { onSettingsChange(settings.copy(safeCommands = it)) }
+            )
+            FeatureToggleRow(
+                title = "Mouse e teclado remotos",
+                detail = "Use este aparelho como touchpad e teclado.",
+                checked = settings.remoteInput,
+                icon = Icons.Default.Devices,
+                onCheckedChange = { onSettingsChange(settings.copy(remoteInput = it)) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeatureCategoryLabel(label: String) {
+    Text(
+        label,
+        modifier = Modifier.padding(top = 22.dp, bottom = 8.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.Bold
+    )
+}
+
+@Composable
+private fun FeatureToggleRow(
+    title: String,
+    detail: String,
+    checked: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 10.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            modifier = Modifier.size(40.dp),
+            shape = CircleShape,
+            color = if (checked) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = if (checked) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.size(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(modifier = Modifier.size(8.dp))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -1589,6 +1985,7 @@ private fun EcosystemActivityFeed(uiState: NearbyClientUiState) {
 
 @Composable
 private fun FeatureAccessCard(
+    featureSettings: FeatureSettings,
     notificationListenerGranted: Boolean,
     notificationPolicyGranted: Boolean,
     telephonyPermissionsGranted: Boolean,
@@ -1602,35 +1999,36 @@ private fun FeatureAccessCard(
     onRequestCameraPermission: () -> Unit,
     onOpenAccessibilitySettings: () -> Unit
 ) {
+    val needsNotificationAccess = featureSettings.notificationSync || featureSettings.mediaControl
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text("Acessos das novas funções", fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(6.dp))
-            Text(
+            if (needsNotificationAccess) Text(
                 text = "Notificações: ${if (notificationListenerGranted) "ativo" else "pendente"}",
                 style = MaterialTheme.typography.bodySmall
             )
-            Text(
+            if (featureSettings.findDevice) Text(
                 text = "Modos/Não Perturbe: ${if (notificationPolicyGranted) "ativo" else "pendente"}",
                 style = MaterialTheme.typography.bodySmall
             )
-            Text(
+            if (featureSettings.telephonySync) Text(
                 text = "Telefonia e SMS: ${if (telephonyPermissionsGranted) "ativo" else "pendente"}",
                 style = MaterialTheme.typography.bodySmall
             )
-            Text(
+            if (featureSettings.telephonySync) Text(
                 text = "Veyro como identificador: ${if (callScreeningRoleGranted) "ativo" else "inativo (opcional)"}",
                 style = MaterialTheme.typography.bodySmall
             )
-            Text(
+            if (featureSettings.safeCommands) Text(
                 text = "Lanterna remota: ${if (cameraPermissionGranted) "ativo" else "pendente"}",
                 style = MaterialTheme.typography.bodySmall
             )
-            Text(
+            if (featureSettings.remoteInput) Text(
                 text = "Controle remoto: ${if (remoteInputAccessibilityGranted) "ativo" else "pendente"}",
                 style = MaterialTheme.typography.bodySmall
             )
-            if (!notificationListenerGranted) {
+            if (needsNotificationAccess && !notificationListenerGranted) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
@@ -1639,7 +2037,7 @@ private fun FeatureAccessCard(
                     Text("Ativar acesso às notificações")
                 }
             }
-            if (!notificationPolicyGranted) {
+            if (featureSettings.findDevice && !notificationPolicyGranted) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
@@ -1648,7 +2046,7 @@ private fun FeatureAccessCard(
                     Text("Ativar acesso a modos")
                 }
             }
-            if (!telephonyPermissionsGranted) {
+            if (featureSettings.telephonySync && !telephonyPermissionsGranted) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
@@ -1657,7 +2055,7 @@ private fun FeatureAccessCard(
                     Text("Permitir telefonia e SMS")
                 }
             }
-            if (!callScreeningRoleGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (featureSettings.telephonySync && !callScreeningRoleGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
@@ -1666,7 +2064,7 @@ private fun FeatureAccessCard(
                     Text("Usar Veyro no lugar do identificador atual")
                 }
             }
-            if (!cameraPermissionGranted) {
+            if (featureSettings.safeCommands && !cameraPermissionGranted) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
@@ -1675,7 +2073,7 @@ private fun FeatureAccessCard(
                     Text("Permitir lanterna remota")
                 }
             }
-            if (!remoteInputAccessibilityGranted) {
+            if (featureSettings.remoteInput && !remoteInputAccessibilityGranted) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
@@ -1684,8 +2082,8 @@ private fun FeatureAccessCard(
                     Text("Ativar controle remoto")
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
+            if (featureSettings.telephonySync) Spacer(modifier = Modifier.height(8.dp))
+            if (featureSettings.telephonySync) Text(
                 text = if (callScreeningRoleGranted) {
                     "O Veyro pode sincronizar nome e número. Eventos só são compartilhados durante uma conexão; todo SMS remoto exige confirmação local."
                 } else {
@@ -1808,56 +2206,77 @@ private fun SessionControls(
                 stopButtonLabel = "Desconectar",
                 onStopSession = onStopSession
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            BatteryStatusCard(status = uiState.remoteBatteryStatus)
-            Spacer(modifier = Modifier.height(12.dp))
-            FindMyDevicePanel(
-                notificationPolicyGranted = notificationPolicyGranted,
-                onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
-                onStartRemoteAlarm = onStartRemoteFindAlarm,
-                onStopRemoteAlarm = onStopRemoteFindAlarm
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            NotificationSyncPanel(
-                notificationListenerGranted = notificationListenerGranted,
-                notifications = uiState.remoteNotifications,
-                onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
-                onDismissNotification = onDismissRemoteNotification
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            MediaControlPanel(
-                state = uiState.remoteMediaState,
-                onCommand = onMediaControlCommand
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            TelephonyPanel(
-                events = uiState.remoteTelecommunicationEvents,
-                onSendSmsTransmitOrder = onSendSmsTransmitOrder
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            SafeCustomCommandsPanel(
-                results = uiState.remoteCustomCommandResults,
-                onCommand = onSendSafeCustomCommand
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            ShareUrlPanel(
-                sharedUrls = uiState.remoteSharedUrls,
-                onShareUrl = onShareUrl
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            RemoteInputPanel(onRemoteInput = onRemoteInput)
-            Spacer(modifier = Modifier.height(12.dp))
-            CommandPanel(
-                receivedCommands = uiState.receivedCommands,
-                onSendCommand = onSendCommand
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            RawFilePanel(
-                transfers = uiState.rawFileTransfers,
-                onPickFile = onPickFile,
-                onApproveIncomingFile = onApproveIncomingFile,
-                onRejectIncomingFile = onRejectIncomingFile
-            )
+            val features = uiState.featureSettings
+            if (features.batterySync) {
+                Spacer(modifier = Modifier.height(12.dp))
+                BatteryStatusCard(status = uiState.remoteBatteryStatus)
+            }
+            if (features.findDevice) {
+                Spacer(modifier = Modifier.height(12.dp))
+                FindMyDevicePanel(
+                    notificationPolicyGranted = notificationPolicyGranted,
+                    onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
+                    onStartRemoteAlarm = onStartRemoteFindAlarm,
+                    onStopRemoteAlarm = onStopRemoteFindAlarm
+                )
+            }
+            if (features.notificationSync) {
+                Spacer(modifier = Modifier.height(12.dp))
+                NotificationSyncPanel(
+                    notificationListenerGranted = notificationListenerGranted,
+                    notifications = uiState.remoteNotifications,
+                    onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
+                    onDismissNotification = onDismissRemoteNotification
+                )
+            }
+            if (features.mediaControl) {
+                Spacer(modifier = Modifier.height(12.dp))
+                MediaControlPanel(
+                    state = uiState.remoteMediaState,
+                    onCommand = onMediaControlCommand
+                )
+            }
+            if (features.telephonySync) {
+                Spacer(modifier = Modifier.height(12.dp))
+                TelephonyPanel(
+                    events = uiState.remoteTelecommunicationEvents,
+                    onSendSmsTransmitOrder = onSendSmsTransmitOrder
+                )
+            }
+            if (features.safeCommands) {
+                Spacer(modifier = Modifier.height(12.dp))
+                SafeCustomCommandsPanel(
+                    results = uiState.remoteCustomCommandResults,
+                    onCommand = onSendSafeCustomCommand
+                )
+            }
+            if (features.sharedLinks) {
+                Spacer(modifier = Modifier.height(12.dp))
+                ShareUrlPanel(
+                    sharedUrls = uiState.remoteSharedUrls,
+                    onShareUrl = onShareUrl
+                )
+            }
+            if (features.remoteInput) {
+                Spacer(modifier = Modifier.height(12.dp))
+                RemoteInputPanel(onRemoteInput = onRemoteInput)
+            }
+            if (features.safeCommands) {
+                Spacer(modifier = Modifier.height(12.dp))
+                CommandPanel(
+                    receivedCommands = uiState.receivedCommands,
+                    onSendCommand = onSendCommand
+                )
+            }
+            if (features.fileTransfer) {
+                Spacer(modifier = Modifier.height(12.dp))
+                RawFilePanel(
+                    transfers = uiState.rawFileTransfers,
+                    onPickFile = onPickFile,
+                    onApproveIncomingFile = onApproveIncomingFile,
+                    onRejectIncomingFile = onRejectIncomingFile
+                )
+            }
         }
     }
 }
@@ -2841,6 +3260,7 @@ private fun VeyroScreenPreview() {
             onRemoveTrustedDevice = {},
             onSetEnergyMode = {},
             onSetAppLanguage = {},
+            onSetFeatureSettings = {},
             onStopSession = {}
         )
     }

@@ -28,6 +28,7 @@ import com.veyro.p2p.protocol.MediaEventCategory
 import com.veyro.p2p.protocol.RemoteInputCommand
 import com.veyro.p2p.settings.EnergyMode
 import com.veyro.p2p.settings.AppLanguage
+import com.veyro.p2p.settings.FeatureSettings
 import com.veyro.p2p.settings.TrustedDeviceRules
 import com.veyro.p2p.settings.EcosystemPreferences
 import com.veyro.p2p.ui.i18n.VeyroI18n
@@ -189,6 +190,10 @@ class P2PTransferService : Service() {
     fun setAppLanguage(language: AppLanguage) {
         controller.setAppLanguage(language)
         createNotificationChannel()
+    }
+
+    fun setFeatureSettings(settings: FeatureSettings) {
+        controller.setFeatureSettings(settings)
     }
 
     fun approveIncomingFile(payloadId: Long) {

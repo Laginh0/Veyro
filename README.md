@@ -20,6 +20,8 @@ Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly,
 | Link sharing | Sends web addresses for user-approved opening on another device. |
 | Safe commands | Provides a restricted set of remote actions, including volume and flashlight control. |
 | Remote input | Performs gestures and text input when the user explicitly enables the accessibility service. |
+| Feature control center | Provides persistent switches that independently enable or disable files, battery, notifications, media, calls, links, commands, device finding, and remote input. |
+| Adaptive navigation | Uses a compact navigation drawer on phones and a navigation rail on larger screens. |
 | Portuguese and English UI | Switches the interface language from Settings and remembers the selection. |
 
 ## Continuous connection architecture
@@ -125,6 +127,12 @@ app/src/main/java/com/veyro/p2p/
 ├── storage/        Storage for received files
 └── ui/             Theme, interface components, and translations
 ```
+
+## Acknowledgements
+
+Veyro was inspired in part by [KDE Connect](https://kdeconnect.kde.org/) and its approach to private continuity between devices, including ideas around file sharing, notifications, media control, remote input, and device discovery.
+
+Veyro is an independent project with its own interface, architecture, and roadmap. It is not affiliated with, sponsored by, or endorsed by KDE e.V. or KDE Connect.
 
 ## Current release
 

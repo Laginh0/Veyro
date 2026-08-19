@@ -34,6 +34,35 @@ data class TrustedDeviceRules(
     val allowFindDevice: Boolean = false
 )
 
+data class FeatureSettings(
+    val fileTransfer: Boolean = true,
+    val batterySync: Boolean = true,
+    val notificationSync: Boolean = true,
+    val mediaControl: Boolean = true,
+    val telephonySync: Boolean = true,
+    val findDevice: Boolean = true,
+    val safeCommands: Boolean = true,
+    val sharedLinks: Boolean = true,
+    val remoteInput: Boolean = true
+) {
+    val enabledCount: Int
+        get() = listOf(
+            fileTransfer,
+            batterySync,
+            notificationSync,
+            mediaControl,
+            telephonySync,
+            findDevice,
+            safeCommands,
+            sharedLinks,
+            remoteInput
+        ).count { it }
+
+    val requiresSpecialAccess: Boolean
+        get() = notificationSync || mediaControl || telephonySync || findDevice ||
+            safeCommands || remoteInput
+}
+
 class EcosystemPreferences(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFERENCES_NAME,
@@ -71,6 +100,32 @@ class EcosystemPreferences(context: Context) {
 
     fun setAppLanguage(language: AppLanguage) {
         preferences.edit().putString(KEY_APP_LANGUAGE, language.name).apply()
+    }
+
+    fun featureSettings(): FeatureSettings = FeatureSettings(
+        fileTransfer = preferences.getBoolean(KEY_FEATURE_FILES, true),
+        batterySync = preferences.getBoolean(KEY_FEATURE_BATTERY, true),
+        notificationSync = preferences.getBoolean(KEY_FEATURE_NOTIFICATIONS, true),
+        mediaControl = preferences.getBoolean(KEY_FEATURE_MEDIA, true),
+        telephonySync = preferences.getBoolean(KEY_FEATURE_TELEPHONY, true),
+        findDevice = preferences.getBoolean(KEY_FEATURE_FIND_DEVICE, true),
+        safeCommands = preferences.getBoolean(KEY_FEATURE_SAFE_COMMANDS, true),
+        sharedLinks = preferences.getBoolean(KEY_FEATURE_SHARED_LINKS, true),
+        remoteInput = preferences.getBoolean(KEY_FEATURE_REMOTE_INPUT, true)
+    )
+
+    fun setFeatureSettings(settings: FeatureSettings) {
+        preferences.edit()
+            .putBoolean(KEY_FEATURE_FILES, settings.fileTransfer)
+            .putBoolean(KEY_FEATURE_BATTERY, settings.batterySync)
+            .putBoolean(KEY_FEATURE_NOTIFICATIONS, settings.notificationSync)
+            .putBoolean(KEY_FEATURE_MEDIA, settings.mediaControl)
+            .putBoolean(KEY_FEATURE_TELEPHONY, settings.telephonySync)
+            .putBoolean(KEY_FEATURE_FIND_DEVICE, settings.findDevice)
+            .putBoolean(KEY_FEATURE_SAFE_COMMANDS, settings.safeCommands)
+            .putBoolean(KEY_FEATURE_SHARED_LINKS, settings.sharedLinks)
+            .putBoolean(KEY_FEATURE_REMOTE_INPUT, settings.remoteInput)
+            .apply()
     }
 
     @Synchronized
@@ -150,6 +205,15 @@ class EcosystemPreferences(context: Context) {
         const val KEY_ECOSYSTEM_ENABLED = "ecosystem_enabled"
         const val KEY_ENERGY_MODE = "energy_mode"
         const val KEY_APP_LANGUAGE = "app_language"
+        const val KEY_FEATURE_FILES = "feature_files"
+        const val KEY_FEATURE_BATTERY = "feature_battery"
+        const val KEY_FEATURE_NOTIFICATIONS = "feature_notifications"
+        const val KEY_FEATURE_MEDIA = "feature_media"
+        const val KEY_FEATURE_TELEPHONY = "feature_telephony"
+        const val KEY_FEATURE_FIND_DEVICE = "feature_find_device"
+        const val KEY_FEATURE_SAFE_COMMANDS = "feature_safe_commands"
+        const val KEY_FEATURE_SHARED_LINKS = "feature_shared_links"
+        const val KEY_FEATURE_REMOTE_INPUT = "feature_remote_input"
         const val KEY_TRUSTED_DEVICE_NAMES = "trusted_device_names"
         const val SUFFIX_NAME = "name"
         const val SUFFIX_AUTO_FILES = "auto_files"

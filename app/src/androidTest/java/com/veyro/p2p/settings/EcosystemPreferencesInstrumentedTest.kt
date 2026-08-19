@@ -81,4 +81,28 @@ class EcosystemPreferencesInstrumentedTest {
             preferences.setAppLanguage(originalLanguage)
         }
     }
+
+    @Test
+    fun featureSettingsPersist() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val preferences = EcosystemPreferences(context)
+        val originalSettings = preferences.featureSettings()
+        val changedSettings = FeatureSettings(
+            fileTransfer = false,
+            batterySync = true,
+            notificationSync = false,
+            mediaControl = true,
+            telephonySync = false,
+            findDevice = true,
+            safeCommands = false,
+            sharedLinks = true,
+            remoteInput = false
+        )
+        try {
+            preferences.setFeatureSettings(changedSettings)
+            assertEquals(changedSettings, EcosystemPreferences(context).featureSettings())
+        } finally {
+            preferences.setFeatureSettings(originalSettings)
+        }
+    }
 }

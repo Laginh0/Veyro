@@ -7,9 +7,17 @@ object VeyroI18n {
         "Ecossistema" to "Ecosystem",
         "Recursos" to "Features",
         "Definições" to "Settings",
+        "Configurações" to "Settings",
+        "Sobre" to "About",
         "ECOSSISTEMA" to "ECOSYSTEM",
         "RECURSOS" to "FEATURES",
         "DEFINIÇÕES" to "SETTINGS",
+        "CONFIGURAÇÕES" to "SETTINGS",
+        "Abrir menu" to "Open menu",
+        "NAVEGAÇÃO" to "NAVIGATION",
+        "Ecossistema ativo" to "Ecosystem active",
+        "Pronto para conectar" to "Ready to connect",
+        "Conectar novo aparelho" to "Connect a new device",
         "Seu ecossistema" to "Your ecosystem",
         "Seu ecossistema Veyro" to "Your Veyro ecosystem",
         "Aparelhos próximos e atividades em uma única visão." to "Nearby devices and activity in one view.",
@@ -57,6 +65,29 @@ object VeyroI18n {
         "Os recursos aparecem aqui assim que uma conexão segura for confirmada no Ecossistema." to "Features appear here after a secure connection is confirmed in the Ecosystem.",
         "Controle e privacidade" to "Control and privacy",
         "Revise os acessos usados por cada recurso do ecossistema." to "Review the permissions used by each ecosystem feature.",
+        "Central de controle" to "Control center",
+        "Escolha como cada parte do seu ecossistema deve funcionar." to "Choose how each part of your ecosystem should work.",
+        "Recursos do ecossistema" to "Ecosystem features",
+        "CONTINUIDADE" to "CONTINUITY",
+        "MÍDIA E COMUNICAÇÃO" to "MEDIA AND COMMUNICATION",
+        "ACESSO REMOTO" to "REMOTE ACCESS",
+        "Transferência de arquivos" to "File transfer",
+        "Envie, receba e aprove arquivos entre aparelhos." to "Send, receive, and approve files between devices.",
+        "Estado da bateria" to "Battery status",
+        "Compartilhe carga e fonte de energia durante a conexão." to "Share charge and power-source status during a connection.",
+        "Links compartilhados" to "Shared links",
+        "Envie links que só abrem após um toque no destino." to "Send links that open only after a tap on the destination device.",
+        "Sincronizar notificações" to "Sync notifications",
+        "Mostre e descarte notificações do aparelho conectado." to "Show and dismiss notifications from the connected device.",
+        "Acompanhe e controle a reprodução remotamente." to "Monitor and control media playback remotely.",
+        "Chamadas e SMS" to "Calls and SMS",
+        "Sincronize eventos e confirme localmente cada SMS." to "Sync events and locally confirm every SMS.",
+        "Encontrar aparelho" to "Find device",
+        "Permita solicitar um alarme no aparelho conectado." to "Allow an alarm request on the connected device.",
+        "Ações remotas seguras" to "Safe remote actions",
+        "Controle volume e lanterna com comandos nativos." to "Control volume and flashlight with native commands.",
+        "Mouse e teclado remotos" to "Remote mouse and keyboard",
+        "Use este aparelho como touchpad e teclado." to "Use this device as a touchpad and keyboard.",
         "Idioma" to "Language",
         "Escolha o idioma da interface do Veyro." to "Choose the Veyro interface language.",
         "Português" to "Portuguese",
@@ -222,7 +253,14 @@ object VeyroI18n {
         "Transferências Veyro" to "Veyro transfers",
         "Mostra conexões e transferências P2P em andamento." to "Shows active P2P connections and transfers.",
         "Transferência P2P ativa." to "P2P transfer active.",
-        "Encerrar" to "Stop"
+        "Encerrar" to "Stop",
+        "Sobre o Veyro" to "About Veyro",
+        "Conexões diretas, privadas e sob o seu controle." to "Direct, private connections under your control.",
+        "Feito para o seu ecossistema" to "Made for your ecosystem",
+        "O Veyro conecta seus aparelhos localmente para compartilhar arquivos, estados e controles sem depender de uma nuvem." to "Veyro connects your devices locally to share files, status, and controls without relying on a cloud service.",
+        "Privacidade por padrão" to "Privacy by default",
+        "Cada conexão é confirmada por PIN e cada recurso pode ser desligado individualmente." to "Every connection is confirmed by PIN, and each feature can be disabled individually.",
+        "Preferências de recursos atualizadas." to "Feature preferences updated."
     )
 
     fun translate(text: String, language: AppLanguage): String {
@@ -232,6 +270,8 @@ object VeyroI18n {
     }
 
     private fun translateDynamic(text: String): String = when {
+        text.endsWith(" de 9 ativos") ->
+            text.removeSuffix(" de 9 ativos") + " of 9 enabled"
         text.startsWith("Notificações: ") ->
             "Notifications: " + translateAccessStatus(text.removePrefix("Notificações: "))
         text.startsWith("Modos/Não Perturbe: ") ->

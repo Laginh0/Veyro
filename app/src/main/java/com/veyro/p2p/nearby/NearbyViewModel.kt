@@ -46,6 +46,7 @@ import com.veyro.p2p.service.P2PTransferService
 import com.veyro.p2p.settings.EcosystemPreferences
 import com.veyro.p2p.settings.EnergyMode
 import com.veyro.p2p.settings.AppLanguage
+import com.veyro.p2p.settings.FeatureSettings
 import com.veyro.p2p.settings.TrustedDeviceRules
 import com.veyro.p2p.storage.ReceivedFileStorage
 import kotlinx.coroutines.CoroutineScope
@@ -194,6 +195,7 @@ data class NearbyClientUiState(
     val trustedDevices: List<TrustedDeviceRules> = emptyList(),
     val energyMode: EnergyMode = EnergyMode.BALANCED,
     val appLanguage: AppLanguage = AppLanguage.PORTUGUESE,
+    val featureSettings: FeatureSettings = FeatureSettings(),
     val ecosystemEnabled: Boolean = false,
     val statusMessage: String? = null,
     val errorMessage: String? = null
@@ -247,6 +249,7 @@ internal class NearbySessionController(
                     trustedDevices = ecosystemPreferences.trustedDevices(),
                     energyMode = ecosystemPreferences.energyMode(),
                     appLanguage = ecosystemPreferences.appLanguage(),
+                    featureSettings = ecosystemPreferences.featureSettings(),
                     ecosystemEnabled = ecosystemPreferences.ecosystemEnabled(),
                     statusMessage = "Cliente Nearby inicializado."
                 )
@@ -258,6 +261,7 @@ internal class NearbySessionController(
                     trustedDevices = ecosystemPreferences.trustedDevices(),
                     energyMode = ecosystemPreferences.energyMode(),
                     appLanguage = ecosystemPreferences.appLanguage(),
+                    featureSettings = ecosystemPreferences.featureSettings(),
                     ecosystemEnabled = ecosystemPreferences.ecosystemEnabled(),
                     errorMessage = error.message ?: "Não foi possível inicializar o Nearby."
                 )
@@ -486,12 +490,46 @@ internal class NearbySessionController(
         }
     }
 
+    fun setFeatureSettings(settings: FeatureSettings) {
+        ecosystemPreferences.setFeatureSettings(settings)
+        _uiState.update { state ->
+            state.copy(
+                featureSettings = settings,
+                remoteBatteryStatus = state.remoteBatteryStatus.takeIf { settings.batterySync },
+                remoteNotifications = state.remoteNotifications.takeIf {
+                    settings.notificationSync
+                }.orEmpty(),
+                remoteMediaState = state.remoteMediaState.takeIf { settings.mediaControl },
+                remoteTelecommunicationEvents = state.remoteTelecommunicationEvents.takeIf {
+                    settings.telephonySync
+                }.orEmpty(),
+                remoteCustomCommandResults = state.remoteCustomCommandResults.takeIf {
+                    settings.safeCommands
+                }.orEmpty(),
+                remoteSharedUrls = state.remoteSharedUrls.takeIf { settings.sharedLinks }.orEmpty(),
+                receivedCommands = state.receivedCommands.takeIf { settings.safeCommands }.orEmpty(),
+                statusMessage = "Preferências de recursos atualizadas.",
+                errorMessage = null
+            )
+        }
+
+        val endpointId = _uiState.value.connectedEndpointId
+        if (endpointId != null) {
+            if (settings.batterySync) startBatterySync(endpointId) else stopBatterySync()
+            if (settings.notificationSync) startNotificationSync(endpointId) else stopNotificationSync()
+            if (settings.mediaControl) startMediaSync(endpointId) else stopMediaSync()
+            if (settings.telephonySync) startTelephonySync(endpointId) else stopTelephonySync()
+        }
+        if (!settings.findDevice) findMyDeviceAlarm.stop()
+    }
+
     fun onScreenStateChanged(interactive: Boolean) {
         screenInteractive = interactive
         applyRadioPolicy()
     }
 
     fun approveIncomingFile(payloadId: Long) {
+        if (!_uiState.value.featureSettings.fileTransfer) return
         val awaitingApproval = _uiState.value.rawFileTransfers.any {
             it.payloadId == payloadId &&
                 it.direction == RawFileDirection.RECEIVE &&
@@ -633,10 +671,11 @@ internal class NearbySessionController(
                     errorMessage = null
                 )
             }
-            startBatterySync(endpointId)
-            startNotificationSync(endpointId)
-            startMediaSync(endpointId)
-            startTelephonySync(endpointId)
+            val features = _uiState.value.featureSettings
+            if (features.batterySync) startBatterySync(endpointId)
+            if (features.notificationSync) startNotificationSync(endpointId)
+            if (features.mediaControl) startMediaSync(endpointId)
+            if (features.telephonySync) startTelephonySync(endpointId)
         } else {
             stopBatterySync()
             stopNotificationSync()
@@ -696,6 +735,7 @@ internal class NearbySessionController(
     }
 
     fun sendCommand(command: String) {
+        if (!_uiState.value.featureSettings.safeCommands) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         val trimmedCommand = command.trim()
         if (trimmedCommand.isEmpty()) return
@@ -714,6 +754,7 @@ internal class NearbySessionController(
     }
 
     fun sendFindDeviceCommand(trigger: FindDeviceTrigger, volumeScalar: Float = 1f) {
+        if (!_uiState.value.featureSettings.findDevice) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         val request = FindDeviceRequest.newBuilder()
             .setTriggerCommand(trigger)
@@ -732,6 +773,7 @@ internal class NearbySessionController(
     }
 
     fun sendNotificationDismiss(notificationKey: String) {
+        if (!_uiState.value.featureSettings.notificationSync) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         if (notificationKey.isBlank()) return
 
@@ -747,6 +789,7 @@ internal class NearbySessionController(
     }
 
     fun sendMediaControlCommand(category: MediaEventCategory) {
+        if (!_uiState.value.featureSettings.mediaControl) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         if (category == MediaEventCategory.STATE_REPORT ||
             category == MediaEventCategory.MEDIA_EVENT_CATEGORY_UNKNOWN ||
@@ -766,6 +809,7 @@ internal class NearbySessionController(
     }
 
     fun sendSmsTransmitOrder(address: String, text: String) {
+        if (!_uiState.value.featureSettings.telephonySync) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         val cleanAddress = address.trim().take(MAX_SMS_ADDRESS_LENGTH)
         val cleanText = text.trim().take(MAX_SMS_TEXT_LENGTH)
@@ -785,10 +829,13 @@ internal class NearbySessionController(
     }
 
     fun refreshTelephonySync() {
-        _uiState.value.connectedEndpointId?.let(::startTelephonySync)
+        if (_uiState.value.featureSettings.telephonySync) {
+            _uiState.value.connectedEndpointId?.let(::startTelephonySync)
+        }
     }
 
     fun sendSafeCustomCommand(action: String) {
+        if (!_uiState.value.featureSettings.safeCommands) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         if (action !in ALLOWED_CUSTOM_COMMANDS) return
         val event = CustomCommandEvent.newBuilder()
@@ -805,6 +852,7 @@ internal class NearbySessionController(
     }
 
     fun shareUrl(url: String) {
+        if (!_uiState.value.featureSettings.sharedLinks) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         val cleanUrl = url.trim().take(MAX_URL_LENGTH)
         if (cleanUrl.isBlank()) return
@@ -825,6 +873,7 @@ internal class NearbySessionController(
         deltaY: Float = 0f,
         keyboardText: String = ""
     ) {
+        if (!_uiState.value.featureSettings.remoteInput) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         if (command == RemoteInputCommand.REMOTE_INPUT_COMMAND_UNKNOWN ||
             command == RemoteInputCommand.UNRECOGNIZED
@@ -847,28 +896,28 @@ internal class NearbySessionController(
         val featureMessage = VeyroProtocolCodec.decodeFeatureMessage(bytes)
         if (featureMessage != null) {
             when (featureMessage.payloadCase) {
-                VeyroMessage.PayloadCase.BATTERY_STATUS ->
+                VeyroMessage.PayloadCase.BATTERY_STATUS -> if (_uiState.value.featureSettings.batterySync)
                     updateRemoteBatteryStatus(endpointId, featureMessage.batteryStatus)
 
-                VeyroMessage.PayloadCase.FIND_DEVICE_REQUEST ->
+                VeyroMessage.PayloadCase.FIND_DEVICE_REQUEST -> if (_uiState.value.featureSettings.findDevice)
                     handleFindDeviceRequest(endpointId, featureMessage.findDeviceRequest)
 
-                VeyroMessage.PayloadCase.NOTIFICATION_SYNC_EVENT ->
+                VeyroMessage.PayloadCase.NOTIFICATION_SYNC_EVENT -> if (_uiState.value.featureSettings.notificationSync)
                     handleNotificationSyncEvent(featureMessage.notificationSyncEvent)
 
-                VeyroMessage.PayloadCase.MEDIA_CONTROL_EVENT ->
+                VeyroMessage.PayloadCase.MEDIA_CONTROL_EVENT -> if (_uiState.value.featureSettings.mediaControl)
                     handleMediaControlEvent(featureMessage.mediaControlEvent)
 
-                VeyroMessage.PayloadCase.TELECOMMUNICATION_EVENT ->
+                VeyroMessage.PayloadCase.TELECOMMUNICATION_EVENT -> if (_uiState.value.featureSettings.telephonySync)
                     handleTelecommunicationEvent(featureMessage.telecommunicationEvent)
 
-                VeyroMessage.PayloadCase.CUSTOM_COMMAND_EVENT ->
+                VeyroMessage.PayloadCase.CUSTOM_COMMAND_EVENT -> if (_uiState.value.featureSettings.safeCommands)
                     handleCustomCommandEvent(featureMessage.customCommandEvent)
 
-                VeyroMessage.PayloadCase.URL_SHARE_EVENT ->
+                VeyroMessage.PayloadCase.URL_SHARE_EVENT -> if (_uiState.value.featureSettings.sharedLinks)
                     handleUrlShareEvent(featureMessage.urlShareEvent)
 
-                VeyroMessage.PayloadCase.REMOTE_INPUT_EVENT ->
+                VeyroMessage.PayloadCase.REMOTE_INPUT_EVENT -> if (_uiState.value.featureSettings.remoteInput)
                     handleRemoteInputEvent(featureMessage.remoteInputEvent)
 
                 VeyroMessage.PayloadCase.PAYLOAD_NOT_SET,
@@ -879,6 +928,7 @@ internal class NearbySessionController(
 
         val fileMetadata = FileMetadata.fromWireBytes(bytes)
         if (fileMetadata != null) {
+            if (!_uiState.value.featureSettings.fileTransfer) return
             fileMetadataByPayloadId[fileMetadata.payloadId] = fileMetadata
             _uiState.update { state ->
                 state.copy(
@@ -900,6 +950,7 @@ internal class NearbySessionController(
             return
         }
 
+        if (!_uiState.value.featureSettings.safeCommands) return
         val command = bytes.toString(Charsets.UTF_8)
         val senderName = _uiState.value.connectedEndpointName
             ?.takeIf { _uiState.value.connectedEndpointId == endpointId }
@@ -915,6 +966,7 @@ internal class NearbySessionController(
     }
 
     fun sendFile(uri: Uri) {
+        if (!_uiState.value.featureSettings.fileTransfer) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         val client = clientResult.getOrElse { error ->
             showError(error)
@@ -945,6 +997,7 @@ internal class NearbySessionController(
         payloadId: Long,
         temporaryUri: Uri
     ) {
+        if (!_uiState.value.featureSettings.fileTransfer) return
         val metadata = fileMetadataByPayloadId[payloadId]
         _uiState.update { state ->
             val existingTransfer = state.rawFileTransfers.firstOrNull {
@@ -982,6 +1035,7 @@ internal class NearbySessionController(
         totalBytes: Long,
         status: Int
     ) {
+        if (!_uiState.value.featureSettings.fileTransfer) return
         val rawFileStatus = when (status) {
             PayloadTransferUpdate.Status.SUCCESS -> RawFileStatus.COMPLETED
             PayloadTransferUpdate.Status.CANCELED -> RawFileStatus.CANCELED
@@ -1707,6 +1761,7 @@ internal class NearbySessionController(
     }
 
     private fun trySaveIncomingFile(payloadId: Long) {
+        if (!_uiState.value.featureSettings.fileTransfer) return
         if (!completedFilePayloadIds.containsKey(payloadId)) return
         val transfer = _uiState.value.rawFileTransfers.firstOrNull {
             it.payloadId == payloadId && it.direction == RawFileDirection.RECEIVE
@@ -1977,6 +2032,10 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setAppLanguage(language: AppLanguage) {
         withService { it.setAppLanguage(language) }
+    }
+
+    fun setFeatureSettings(settings: FeatureSettings) {
+        withService { it.setFeatureSettings(settings) }
     }
 
     fun approveIncomingFile(payloadId: Long) {
