@@ -75,6 +75,10 @@ object VeyroI18n {
         "Envie, receba e aprove arquivos entre aparelhos." to "Send, receive, and approve files between devices.",
         "Estado da bateria" to "Battery status",
         "Compartilhe carga e fonte de energia durante a conexão." to "Share charge and power-source status during a connection.",
+        "Relatório de conectividade" to "Connectivity report",
+        "Compartilhe transporte, internet, rede limitada e sinal disponível." to "Share transport, internet access, metered status, and available signal strength.",
+        "Ping P2P" to "P2P ping",
+        "Meça periodicamente a latência direta entre os aparelhos." to "Periodically measure direct latency between devices.",
         "Links compartilhados" to "Shared links",
         "Envie links que só abrem após um toque no destino." to "Send links that open only after a tap on the destination device.",
         "Sincronizar notificações" to "Sync notifications",
@@ -152,6 +156,24 @@ object VeyroI18n {
         "Bateria do outro aparelho" to "Other device battery",
         "Aguardando a primeira atualização segura..." to "Waiting for the first secure update...",
         "Usando a bateria" to "On battery",
+        "Conectividade do outro aparelho" to "Other device connectivity",
+        "Aguardando o primeiro relatório de rede..." to "Waiting for the first network report...",
+        "Internet disponível" to "Internet available",
+        "Sem acesso à internet" to "No internet access",
+        "Rede limitada" to "Metered network",
+        "Rede não limitada" to "Unmetered network",
+        "Internet disponível • Rede limitada" to "Internet available • Metered network",
+        "Internet disponível • Rede não limitada" to "Internet available • Unmetered network",
+        "Sem acesso à internet • Rede limitada" to "No internet access • Metered network",
+        "Sem acesso à internet • Rede não limitada" to "No internet access • Unmetered network",
+        "Latência do canal Nearby" to "Nearby channel latency",
+        "Aguardando resposta do ping..." to "Waiting for a ping response...",
+        "Medição de ida e volta pelo canal P2P." to "Round-trip measurement over the P2P channel.",
+        "Conectividade remota" to "Remote connectivity",
+        "Rede móvel" to "Mobile network",
+        "Sem rede" to "No network",
+        "Outra rede" to "Other network",
+        "Desconhecida" to "Unknown",
         "Controle de mídia" to "Media control",
         "Aguardando o estado de mídia do outro aparelho." to "Waiting for media state from the other device.",
         "Nenhuma sessão de mídia ativa no outro aparelho." to "No active media session on the other device.",
@@ -270,8 +292,10 @@ object VeyroI18n {
     }
 
     private fun translateDynamic(text: String): String = when {
-        text.endsWith(" de 9 ativos") ->
-            text.removeSuffix(" de 9 ativos") + " of 9 enabled"
+        Regex("""\d+ de \d+ ativos""").matches(text) -> {
+            val values = Regex("""\d+""").findAll(text).map { it.value }.toList()
+            "${values[0]} of ${values[1]} enabled"
+        }
         text.startsWith("Notificações: ") ->
             "Notifications: " + translateAccessStatus(text.removePrefix("Notificações: "))
         text.startsWith("Modos/Não Perturbe: ") ->
@@ -307,6 +331,14 @@ object VeyroI18n {
         text.endsWith(" aparelho(s) no ecossistema próximo.") ->
             text.removeSuffix(" aparelho(s) no ecossistema próximo.") + " device(s) in the nearby ecosystem."
         text.startsWith("Bateria remota: ") -> "Remote battery: " + text.removePrefix("Bateria remota: ")
+        text.startsWith("Conectividade remota: ") ->
+            "Remote connectivity: " + text.removePrefix("Conectividade remota: ")
+        text.endsWith(" • com internet") ->
+            text.removeSuffix(" • com internet") + " • with internet"
+        text.endsWith(" • sem internet") ->
+            text.removeSuffix(" • sem internet") + " • no internet"
+        text.startsWith("Sinal informado: ") ->
+            "Reported signal: " + text.removePrefix("Sinal informado: ")
         text.startsWith("Mídia remota: ") -> "Remote media: " + text.removePrefix("Mídia remota: ")
         text.startsWith("Notificação recebida de ") ->
             "Notification received from " + text.removePrefix("Notificação recebida de ")

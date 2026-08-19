@@ -125,6 +125,8 @@ import com.veyro.p2p.nearby.RawFileDirection
 import com.veyro.p2p.nearby.RawFileStatus
 import com.veyro.p2p.nearby.RawFileTransfer
 import com.veyro.p2p.nearby.RemoteBatteryStatus
+import com.veyro.p2p.nearby.RemoteConnectivityStatus
+import com.veyro.p2p.nearby.RemotePingStatus
 import com.veyro.p2p.nearby.RemoteNotification
 import com.veyro.p2p.nearby.RemoteMediaState
 import com.veyro.p2p.nearby.RemoteTelecommunicationEvent
@@ -1204,7 +1206,7 @@ private fun FeatureSettingsPanel(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Recursos do ecossistema", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "${settings.enabledCount} de 9 ativos",
+                        "${settings.enabledCount} de ${FeatureSettings().enabledCount} ativos",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -1225,6 +1227,20 @@ private fun FeatureSettingsPanel(
                 checked = settings.batterySync,
                 icon = Icons.Default.Hub,
                 onCheckedChange = { onSettingsChange(settings.copy(batterySync = it)) }
+            )
+            FeatureToggleRow(
+                title = "Relatório de conectividade",
+                detail = "Compartilhe transporte, internet, rede limitada e sinal disponível.",
+                checked = settings.connectivitySync,
+                icon = Icons.Default.Hub,
+                onCheckedChange = { onSettingsChange(settings.copy(connectivitySync = it)) }
+            )
+            FeatureToggleRow(
+                title = "Ping P2P",
+                detail = "Meça periodicamente a latência direta entre os aparelhos.",
+                checked = settings.ping,
+                icon = Icons.Default.Hub,
+                onCheckedChange = { onSettingsChange(settings.copy(ping = it)) }
             )
             FeatureToggleRow(
                 title = "Links compartilhados",
@@ -1943,6 +1959,13 @@ private fun EcosystemActivityFeed(uiState: NearbyClientUiState) {
         uiState.remoteBatteryStatus?.let { battery ->
             add(EcosystemActivity("Bateria remota", "${battery.chargePercentage}% • ${battery.powerSourceLabel}"))
         }
+        uiState.remoteConnectivityStatus?.let { connectivity ->
+            val internet = if (connectivity.hasInternet) "com internet" else "sem internet"
+            add(EcosystemActivity("Conectividade remota", "${connectivity.transportLabel} • $internet"))
+        }
+        uiState.remotePingStatus?.let { ping ->
+            add(EcosystemActivity("Ping P2P", "${ping.roundTripMillis} ms"))
+        }
         if (isEmpty()) {
             add(
                 EcosystemActivity(
@@ -2212,6 +2235,15 @@ private fun SessionControls(
             if (features.batterySync) {
                 Spacer(modifier = Modifier.height(12.dp))
                 BatteryStatusCard(status = uiState.remoteBatteryStatus)
+            }
+            if (features.connectivitySync || features.ping) {
+                Spacer(modifier = Modifier.height(12.dp))
+                ConnectivityStatusCard(
+                    status = uiState.remoteConnectivityStatus,
+                    ping = uiState.remotePingStatus,
+                    showConnectivity = features.connectivitySync,
+                    showPing = features.ping
+                )
             }
             if (features.findDevice) {
                 Spacer(modifier = Modifier.height(12.dp))
@@ -2545,6 +2577,63 @@ private fun BatteryStatusCard(status: RemoteBatteryStatus?) {
                         "Usando a bateria"
                     },
                     style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectivityStatusCard(
+    status: RemoteConnectivityStatus?,
+    ping: RemotePingStatus?,
+    showConnectivity: Boolean,
+    showPing: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Conectividade do outro aparelho", fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(8.dp))
+            if (showConnectivity) {
+                if (status == null) {
+                    Text(
+                        "Aguardando o primeiro relatório de rede...",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    Text(
+                        status.transportLabel,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    val internetLabel = if (status.hasInternet) {
+                        "Internet disponível"
+                    } else {
+                        "Sem acesso à internet"
+                    }
+                    val meteredLabel = if (status.isMetered) "Rede limitada" else "Rede não limitada"
+                    Text("$internetLabel • $meteredLabel")
+                    status.signalStrengthDbm?.let { strength ->
+                        Text("Sinal informado: $strength dBm", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            if (showConnectivity && showPing) Spacer(modifier = Modifier.height(12.dp))
+            if (showPing) {
+                Text("Latência do canal Nearby", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    ping?.let { "${it.roundTripMillis} ms" } ?: "Aguardando resposta do ping...",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Medição de ida e volta pelo canal P2P.",
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }

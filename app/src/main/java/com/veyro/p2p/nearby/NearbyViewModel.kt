@@ -10,6 +10,7 @@ import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,6 +18,7 @@ import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.tasks.Task
 import com.veyro.p2p.features.battery.BatteryStatusMonitor
 import com.veyro.p2p.features.commands.SafeCustomCommandExecutor
+import com.veyro.p2p.features.connectivity.ConnectivityStatusMonitor
 import com.veyro.p2p.features.finddevice.FindMyDeviceAlarmController
 import com.veyro.p2p.features.media.MediaSessionCoordinator
 import com.veyro.p2p.features.notifications.NotificationSyncBridge
@@ -27,6 +29,7 @@ import com.veyro.p2p.features.telephony.TelephonyCallStateMonitor
 import com.veyro.p2p.features.telephony.TelephonySyncBridge
 import com.veyro.p2p.protocol.BatteryStatus
 import com.veyro.p2p.protocol.CustomCommandEvent
+import com.veyro.p2p.protocol.ConnectivityStatus
 import com.veyro.p2p.protocol.ExecutionTypeCategory
 import com.veyro.p2p.protocol.FindDeviceRequest
 import com.veyro.p2p.protocol.FindDeviceTrigger
@@ -34,6 +37,9 @@ import com.veyro.p2p.protocol.MediaControlEvent
 import com.veyro.p2p.protocol.MediaEventCategory
 import com.veyro.p2p.protocol.NotificationSyncAction
 import com.veyro.p2p.protocol.NotificationSyncEvent
+import com.veyro.p2p.protocol.NetworkTransport
+import com.veyro.p2p.protocol.PingAction
+import com.veyro.p2p.protocol.PingEvent
 import com.veyro.p2p.protocol.PowerSourceType
 import com.veyro.p2p.protocol.RemoteInputCommand
 import com.veyro.p2p.protocol.RemoteInputEvent
@@ -108,6 +114,19 @@ data class RemoteBatteryStatus(
     val isPluggedIn: Boolean,
     val powerSourceLabel: String,
     val eventTimestamp: Long
+)
+
+data class RemoteConnectivityStatus(
+    val transportLabel: String,
+    val hasInternet: Boolean,
+    val isMetered: Boolean,
+    val signalStrengthDbm: Int?,
+    val eventTimestamp: Long
+)
+
+data class RemotePingStatus(
+    val roundTripMillis: Long,
+    val measuredAt: Long
 )
 
 data class RemoteNotification(
@@ -185,6 +204,8 @@ data class NearbyClientUiState(
     val connectedEndpointId: String? = null,
     val connectedEndpointName: String? = null,
     val remoteBatteryStatus: RemoteBatteryStatus? = null,
+    val remoteConnectivityStatus: RemoteConnectivityStatus? = null,
+    val remotePingStatus: RemotePingStatus? = null,
     val remoteNotifications: List<RemoteNotification> = emptyList(),
     val remoteMediaState: RemoteMediaState? = null,
     val remoteTelecommunicationEvents: List<RemoteTelecommunicationEvent> = emptyList(),
@@ -221,6 +242,7 @@ internal class NearbySessionController(
     private val approvedFilePayloadIds = ConcurrentHashMap<Long, Unit>()
     private val receivedFileStorage = ReceivedFileStorage(application)
     private val batteryStatusMonitor = BatteryStatusMonitor(application)
+    private val connectivityStatusMonitor = ConnectivityStatusMonitor(application)
     private val findMyDeviceAlarm = FindMyDeviceAlarmController(application)
     private val mediaSessionCoordinator = MediaSessionCoordinator(application)
     private val telephonyCallStateMonitor = TelephonyCallStateMonitor(application)
@@ -228,6 +250,9 @@ internal class NearbySessionController(
     private val safeCustomCommandExecutor = SafeCustomCommandExecutor(application)
     private val sharedUrlNotificationManager = SharedUrlNotificationManager(application)
     private var batterySyncJob: Job? = null
+    private var connectivitySyncJob: Job? = null
+    private var pingJob: Job? = null
+    private val pendingPings = ConcurrentHashMap<String, Long>()
     private var notificationSyncJob: Job? = null
     private var telephonySyncJob: Job? = null
     private var radioDutyCycleJob: Job? = null
@@ -406,6 +431,8 @@ internal class NearbySessionController(
         radioDutyCycleJob?.cancel()
         cancelConnectionAttempts()
         stopBatterySync()
+        stopConnectivitySync()
+        stopPing()
         stopNotificationSync()
         stopMediaSync()
         stopTelephonySync()
@@ -427,6 +454,8 @@ internal class NearbySessionController(
                 connectedEndpointId = null,
                 connectedEndpointName = null,
                 remoteBatteryStatus = null,
+                remoteConnectivityStatus = null,
+                remotePingStatus = null,
                 remoteNotifications = emptyList(),
                 remoteMediaState = null,
                 remoteTelecommunicationEvents = emptyList(),
@@ -473,6 +502,9 @@ internal class NearbySessionController(
             )
         }
         applyRadioPolicy()
+        if (_uiState.value.featureSettings.ping) {
+            _uiState.value.connectedEndpointId?.let(::startPing)
+        }
     }
 
     fun setAppLanguage(language: AppLanguage) {
@@ -496,6 +528,10 @@ internal class NearbySessionController(
             state.copy(
                 featureSettings = settings,
                 remoteBatteryStatus = state.remoteBatteryStatus.takeIf { settings.batterySync },
+                remoteConnectivityStatus = state.remoteConnectivityStatus.takeIf {
+                    settings.connectivitySync
+                },
+                remotePingStatus = state.remotePingStatus.takeIf { settings.ping },
                 remoteNotifications = state.remoteNotifications.takeIf {
                     settings.notificationSync
                 }.orEmpty(),
@@ -516,6 +552,12 @@ internal class NearbySessionController(
         val endpointId = _uiState.value.connectedEndpointId
         if (endpointId != null) {
             if (settings.batterySync) startBatterySync(endpointId) else stopBatterySync()
+            if (settings.connectivitySync) {
+                startConnectivitySync(endpointId)
+            } else {
+                stopConnectivitySync()
+            }
+            if (settings.ping) startPing(endpointId) else stopPing()
             if (settings.notificationSync) startNotificationSync(endpointId) else stopNotificationSync()
             if (settings.mediaControl) startMediaSync(endpointId) else stopMediaSync()
             if (settings.telephonySync) startTelephonySync(endpointId) else stopTelephonySync()
@@ -673,11 +715,15 @@ internal class NearbySessionController(
             }
             val features = _uiState.value.featureSettings
             if (features.batterySync) startBatterySync(endpointId)
+            if (features.connectivitySync) startConnectivitySync(endpointId)
+            if (features.ping) startPing(endpointId)
             if (features.notificationSync) startNotificationSync(endpointId)
             if (features.mediaControl) startMediaSync(endpointId)
             if (features.telephonySync) startTelephonySync(endpointId)
         } else {
             stopBatterySync()
+            stopConnectivitySync()
+            stopPing()
             stopNotificationSync()
             stopMediaSync()
             stopTelephonySync()
@@ -700,6 +746,8 @@ internal class NearbySessionController(
 
     override fun onDisconnected(endpointId: String) {
         stopBatterySync()
+        stopConnectivitySync()
+        stopPing()
         stopNotificationSync()
         stopMediaSync()
         stopTelephonySync()
@@ -716,6 +764,8 @@ internal class NearbySessionController(
                     connectedEndpointId = null,
                     connectedEndpointName = null,
                     remoteBatteryStatus = null,
+                    remoteConnectivityStatus = null,
+                    remotePingStatus = null,
                     remoteNotifications = emptyList(),
                     remoteMediaState = null,
                     remoteTelecommunicationEvents = emptyList(),
@@ -898,6 +948,14 @@ internal class NearbySessionController(
             when (featureMessage.payloadCase) {
                 VeyroMessage.PayloadCase.BATTERY_STATUS -> if (_uiState.value.featureSettings.batterySync)
                     updateRemoteBatteryStatus(endpointId, featureMessage.batteryStatus)
+
+                VeyroMessage.PayloadCase.CONNECTIVITY_STATUS ->
+                    if (_uiState.value.featureSettings.connectivitySync) {
+                        updateRemoteConnectivityStatus(endpointId, featureMessage.connectivityStatus)
+                    }
+
+                VeyroMessage.PayloadCase.PING_EVENT -> if (_uiState.value.featureSettings.ping)
+                    handlePingEvent(endpointId, featureMessage.pingEvent)
 
                 VeyroMessage.PayloadCase.FIND_DEVICE_REQUEST -> if (_uiState.value.featureSettings.findDevice)
                     handleFindDeviceRequest(endpointId, featureMessage.findDeviceRequest)
@@ -1106,6 +1164,8 @@ internal class NearbySessionController(
         radioDutyCycleJob?.cancel()
         cancelConnectionAttempts()
         stopBatterySync()
+        stopConnectivitySync()
+        stopPing()
         stopNotificationSync()
         stopMediaSync()
         stopTelephonySync()
@@ -1314,6 +1374,63 @@ internal class NearbySessionController(
     private fun stopBatterySync() {
         batterySyncJob?.cancel()
         batterySyncJob = null
+    }
+
+    private fun startConnectivitySync(endpointId: String) {
+        stopConnectivitySync()
+        val client = clientResult.getOrNull() ?: return
+
+        connectivitySyncJob = controllerScope.launch {
+            connectivityStatusMonitor.statusUpdates().collect { status ->
+                if (_uiState.value.connectedEndpointId != endpointId) return@collect
+                runCatching {
+                    client.sendBytes(
+                        endpointId,
+                        VeyroProtocolCodec.encodeConnectivityStatus(status)
+                    ).addOnFailureListener(::showFeatureError)
+                }.onFailure(::showFeatureError)
+            }
+        }
+    }
+
+    private fun stopConnectivitySync() {
+        connectivitySyncJob?.cancel()
+        connectivitySyncJob = null
+    }
+
+    private fun startPing(endpointId: String) {
+        stopPing()
+        val client = clientResult.getOrNull() ?: return
+
+        pingJob = controllerScope.launch {
+            while (isActive && _uiState.value.connectedEndpointId == endpointId) {
+                val now = SystemClock.elapsedRealtime()
+                pendingPings.entries.removeIf { now - it.value > PING_TIMEOUT_MILLIS }
+                val requestId = UUID.randomUUID().toString()
+                pendingPings[requestId] = now
+                val event = PingEvent.newBuilder()
+                    .setRequestId(requestId)
+                    .setAction(PingAction.PING_REQUEST)
+                    .build()
+                runCatching {
+                    client.sendBytes(endpointId, VeyroProtocolCodec.encodePingEvent(event))
+                        .addOnFailureListener { pendingPings.remove(requestId) }
+                }.onFailure { pendingPings.remove(requestId) }
+                delay(pingIntervalMillis())
+            }
+        }
+    }
+
+    private fun stopPing() {
+        pingJob?.cancel()
+        pingJob = null
+        pendingPings.clear()
+    }
+
+    private fun pingIntervalMillis(): Long = when (_uiState.value.energyMode) {
+        EnergyMode.CONTINUOUS -> PING_CONTINUOUS_INTERVAL_MILLIS
+        EnergyMode.BALANCED -> PING_BALANCED_INTERVAL_MILLIS
+        EnergyMode.BATTERY_SAVER -> PING_SAVER_INTERVAL_MILLIS
     }
 
     private fun startNotificationSync(endpointId: String) {
@@ -1743,6 +1860,65 @@ internal class NearbySessionController(
         }
     }
 
+    private fun updateRemoteConnectivityStatus(
+        endpointId: String,
+        status: ConnectivityStatus
+    ) {
+        if (_uiState.value.connectedEndpointId != endpointId) return
+        val remoteStatus = RemoteConnectivityStatus(
+            transportLabel = status.activeTransport.toDisplayLabel(),
+            hasInternet = status.hasInternet,
+            isMetered = status.isMetered,
+            signalStrengthDbm = status.signalStrengthDbm.takeIf {
+                status.hasSignalStrength
+            },
+            eventTimestamp = status.eventTimestamp
+        )
+        _uiState.update {
+            it.copy(
+                remoteConnectivityStatus = remoteStatus,
+                statusMessage = "Conectividade remota: ${remoteStatus.transportLabel}.",
+                errorMessage = null
+            )
+        }
+    }
+
+    private fun handlePingEvent(endpointId: String, event: PingEvent) {
+        if (_uiState.value.connectedEndpointId != endpointId || event.requestId.isBlank()) return
+        when (event.action) {
+            PingAction.PING_REQUEST -> {
+                val response = PingEvent.newBuilder()
+                    .setRequestId(event.requestId.take(MAX_PING_ID_LENGTH))
+                    .setAction(PingAction.PING_RESPONSE)
+                    .build()
+                runCatching {
+                    clientResult.getOrNull()?.sendBytes(
+                        endpointId,
+                        VeyroProtocolCodec.encodePingEvent(response)
+                    )
+                }
+            }
+
+            PingAction.PING_RESPONSE -> {
+                val startedAt = pendingPings.remove(event.requestId) ?: return
+                val roundTrip = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
+                _uiState.update {
+                    it.copy(
+                        remotePingStatus = RemotePingStatus(
+                            roundTripMillis = roundTrip,
+                            measuredAt = System.currentTimeMillis()
+                        ),
+                        statusMessage = "Ping P2P: ${roundTrip} ms.",
+                        errorMessage = null
+                    )
+                }
+            }
+
+            PingAction.PING_ACTION_UNKNOWN,
+            PingAction.UNRECOGNIZED -> Unit
+        }
+    }
+
     private fun runTask(
         taskProvider: () -> Task<Void>,
         onSuccess: () -> Unit
@@ -1872,6 +2048,18 @@ internal class NearbySessionController(
         PowerSourceType.UNRECOGNIZED -> "Fonte desconhecida"
     }
 
+    private fun NetworkTransport.toDisplayLabel(): String = when (this) {
+        NetworkTransport.NETWORK_TRANSPORT_WIFI -> "Wi-Fi"
+        NetworkTransport.NETWORK_TRANSPORT_CELLULAR -> "Rede móvel"
+        NetworkTransport.NETWORK_TRANSPORT_ETHERNET -> "Ethernet"
+        NetworkTransport.NETWORK_TRANSPORT_BLUETOOTH -> "Bluetooth"
+        NetworkTransport.NETWORK_TRANSPORT_VPN -> "VPN"
+        NetworkTransport.NETWORK_TRANSPORT_NONE -> "Sem rede"
+        NetworkTransport.NETWORK_TRANSPORT_OTHER -> "Outra rede"
+        NetworkTransport.NETWORK_TRANSPORT_UNKNOWN,
+        NetworkTransport.UNRECOGNIZED -> "Desconhecida"
+    }
+
     private companion object {
         const val MAX_RECEIVED_COMMANDS = 50
         const val MAX_REMOTE_NOTIFICATIONS = 50
@@ -1883,6 +2071,11 @@ internal class NearbySessionController(
         const val MAX_SHARED_URLS = 20
         const val MAX_URL_LENGTH = 2_048
         const val MAX_REMOTE_KEYBOARD_CHUNK = 64
+        const val MAX_PING_ID_LENGTH = 80
+        const val PING_TIMEOUT_MILLIS = 2 * 60 * 1000L
+        const val PING_CONTINUOUS_INTERVAL_MILLIS = 10_000L
+        const val PING_BALANCED_INTERVAL_MILLIS = 20_000L
+        const val PING_SAVER_INTERVAL_MILLIS = 60_000L
         const val RECONNECT_DELAY_MILLIS = 1_500L
         const val BATTERY_SAVER_ACTIVE_WINDOW_MILLIS = 15_000L
         const val BATTERY_SAVER_SLEEP_WINDOW_MILLIS = 105_000L

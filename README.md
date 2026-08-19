@@ -13,6 +13,8 @@ Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly,
 | Trust Hub | Stores known devices and provides individual trust rules for each one. |
 | File transfer | Sends and receives files directly, with progress information and local approval controls. |
 | Battery sync | Displays the connected device's charge level and power source. |
+| Connectivity report | Shares the active transport, validated internet access, metered-network state, and signal strength when Android exposes it. |
+| P2P ping | Measures round-trip latency between connected Veyro devices at intervals adapted to the selected power mode. |
 | Notification sync | Shares authorized notifications and supports remote dismissal. |
 | Media control | Synchronizes playback state and sends media commands. |
 | Find my device | Starts and stops an audible alarm on the connected device. |
@@ -20,7 +22,7 @@ Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly,
 | Link sharing | Sends web addresses for user-approved opening on another device. |
 | Safe commands | Provides a restricted set of remote actions, including volume and flashlight control. |
 | Remote input | Performs gestures and text input when the user explicitly enables the accessibility service. |
-| Feature control center | Provides persistent switches that independently enable or disable files, battery, notifications, media, calls, links, commands, device finding, and remote input. |
+| Feature control center | Provides persistent switches that independently enable or disable every ecosystem module, including connectivity reports and P2P ping. |
 | Adaptive navigation | Uses a compact navigation drawer on phones and a navigation rail on larger screens. |
 | Portuguese and English UI | Switches the interface language from Settings and remembers the selection. |
 
@@ -118,7 +120,7 @@ The project includes:
 
 ```text
 app/src/main/java/com/veyro/p2p/
-├── features/       Battery, media, notifications, telephony, and remote control
+├── features/       Battery, connectivity, media, notifications, telephony, and remote control
 ├── nearby/         Device discovery, connection, hub selection, and P2P transfer
 ├── permissions/    Android runtime permissions
 ├── protocol/       Messages exchanged between devices

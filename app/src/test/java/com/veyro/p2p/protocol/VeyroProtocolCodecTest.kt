@@ -153,4 +153,38 @@ class VeyroProtocolCodecTest {
         assertEquals(VeyroMessage.PayloadCase.MEDIA_CONTROL_EVENT, decoded?.payloadCase)
         assertEquals(event, decoded?.mediaControlEvent)
     }
+
+    @Test
+    fun connectivityStatus_roundTripsThroughEnvelope() {
+        val status = ConnectivityStatus.newBuilder()
+            .setActiveTransport(NetworkTransport.NETWORK_TRANSPORT_WIFI)
+            .setHasInternet(true)
+            .setIsMetered(false)
+            .setHasSignalStrength(true)
+            .setSignalStrengthDbm(-54)
+            .setEventTimestamp(1_700_000_000_000L)
+            .build()
+
+        val decoded = VeyroProtocolCodec.decodeFeatureMessage(
+            VeyroProtocolCodec.encodeConnectivityStatus(status)
+        )
+
+        assertEquals(VeyroMessage.PayloadCase.CONNECTIVITY_STATUS, decoded?.payloadCase)
+        assertEquals(status, decoded?.connectivityStatus)
+    }
+
+    @Test
+    fun pingEvent_roundTripsThroughEnvelope() {
+        val event = PingEvent.newBuilder()
+            .setRequestId("ping-request")
+            .setAction(PingAction.PING_REQUEST)
+            .build()
+
+        val decoded = VeyroProtocolCodec.decodeFeatureMessage(
+            VeyroProtocolCodec.encodePingEvent(event)
+        )
+
+        assertEquals(VeyroMessage.PayloadCase.PING_EVENT, decoded?.payloadCase)
+        assertEquals(event, decoded?.pingEvent)
+    }
 }

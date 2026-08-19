@@ -37,6 +37,8 @@ data class TrustedDeviceRules(
 data class FeatureSettings(
     val fileTransfer: Boolean = true,
     val batterySync: Boolean = true,
+    val connectivitySync: Boolean = true,
+    val ping: Boolean = true,
     val notificationSync: Boolean = true,
     val mediaControl: Boolean = true,
     val telephonySync: Boolean = true,
@@ -49,6 +51,8 @@ data class FeatureSettings(
         get() = listOf(
             fileTransfer,
             batterySync,
+            connectivitySync,
+            ping,
             notificationSync,
             mediaControl,
             telephonySync,
@@ -105,6 +109,8 @@ class EcosystemPreferences(context: Context) {
     fun featureSettings(): FeatureSettings = FeatureSettings(
         fileTransfer = preferences.getBoolean(KEY_FEATURE_FILES, true),
         batterySync = preferences.getBoolean(KEY_FEATURE_BATTERY, true),
+        connectivitySync = preferences.getBoolean(KEY_FEATURE_CONNECTIVITY, true),
+        ping = preferences.getBoolean(KEY_FEATURE_PING, true),
         notificationSync = preferences.getBoolean(KEY_FEATURE_NOTIFICATIONS, true),
         mediaControl = preferences.getBoolean(KEY_FEATURE_MEDIA, true),
         telephonySync = preferences.getBoolean(KEY_FEATURE_TELEPHONY, true),
@@ -118,6 +124,8 @@ class EcosystemPreferences(context: Context) {
         preferences.edit()
             .putBoolean(KEY_FEATURE_FILES, settings.fileTransfer)
             .putBoolean(KEY_FEATURE_BATTERY, settings.batterySync)
+            .putBoolean(KEY_FEATURE_CONNECTIVITY, settings.connectivitySync)
+            .putBoolean(KEY_FEATURE_PING, settings.ping)
             .putBoolean(KEY_FEATURE_NOTIFICATIONS, settings.notificationSync)
             .putBoolean(KEY_FEATURE_MEDIA, settings.mediaControl)
             .putBoolean(KEY_FEATURE_TELEPHONY, settings.telephonySync)
@@ -207,6 +215,8 @@ class EcosystemPreferences(context: Context) {
         const val KEY_APP_LANGUAGE = "app_language"
         const val KEY_FEATURE_FILES = "feature_files"
         const val KEY_FEATURE_BATTERY = "feature_battery"
+        const val KEY_FEATURE_CONNECTIVITY = "feature_connectivity"
+        const val KEY_FEATURE_PING = "feature_ping"
         const val KEY_FEATURE_NOTIFICATIONS = "feature_notifications"
         const val KEY_FEATURE_MEDIA = "feature_media"
         const val KEY_FEATURE_TELEPHONY = "feature_telephony"

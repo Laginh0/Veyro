@@ -58,6 +58,19 @@ object VeyroProtocolCodec {
             .build()
             .toByteArray()
 
+    fun encodeConnectivityStatus(status: ConnectivityStatus): ByteArray =
+        VeyroMessage.newBuilder()
+            .setProtocolVersion(PROTOCOL_VERSION)
+            .setConnectivityStatus(status)
+            .build()
+            .toByteArray()
+
+    fun encodePingEvent(event: PingEvent): ByteArray = VeyroMessage.newBuilder()
+        .setProtocolVersion(PROTOCOL_VERSION)
+        .setPingEvent(event)
+        .build()
+        .toByteArray()
+
     fun decodeFeatureMessage(bytes: ByteArray): VeyroMessage? = runCatching {
         VeyroMessage.parseFrom(bytes)
     }.getOrNull()

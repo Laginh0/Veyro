@@ -90,6 +90,8 @@ class EcosystemPreferencesInstrumentedTest {
         val changedSettings = FeatureSettings(
             fileTransfer = false,
             batterySync = true,
+            connectivitySync = false,
+            ping = true,
             notificationSync = false,
             mediaControl = true,
             telephonySync = false,

@@ -19,6 +19,8 @@ message VeyroMessage {
     CustomCommandEvent custom_command_event = 15;
     UrlShareEvent url_share_event = 16;
     RemoteInputEvent remote_input_event = 17;
+    ConnectivityStatus connectivity_status = 18;
+    PingEvent ping_event = 19;
   }
 }
 
@@ -138,4 +140,35 @@ enum RemoteInputCommand {
   DOUBLE_TAP = 3;
   SCROLL_GESTURE = 4;
   KEYBOARD_INPUT = 5;
+}
+
+message ConnectivityStatus {
+  NetworkTransport active_transport = 1;
+  bool has_internet = 2;
+  bool is_metered = 3;
+  bool has_signal_strength = 4;
+  int32 signal_strength_dbm = 5;
+  int64 event_timestamp = 6;
+}
+
+enum NetworkTransport {
+  NETWORK_TRANSPORT_UNKNOWN = 0;
+  NETWORK_TRANSPORT_NONE = 1;
+  NETWORK_TRANSPORT_WIFI = 2;
+  NETWORK_TRANSPORT_CELLULAR = 3;
+  NETWORK_TRANSPORT_ETHERNET = 4;
+  NETWORK_TRANSPORT_BLUETOOTH = 5;
+  NETWORK_TRANSPORT_VPN = 6;
+  NETWORK_TRANSPORT_OTHER = 7;
+}
+
+message PingEvent {
+  string request_id = 1;
+  PingAction action = 2;
+}
+
+enum PingAction {
+  PING_ACTION_UNKNOWN = 0;
+  PING_REQUEST = 1;
+  PING_RESPONSE = 2;
 }

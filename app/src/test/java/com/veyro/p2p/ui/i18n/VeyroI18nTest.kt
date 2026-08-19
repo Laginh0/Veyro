@@ -31,5 +31,9 @@ class VeyroI18nTest {
             "Connected to Pixel 9",
             VeyroI18n.translate("Conectado a Pixel 9", AppLanguage.ENGLISH)
         )
+        assertEquals(
+            "11 of 11 enabled",
+            VeyroI18n.translate("11 de 11 ativos", AppLanguage.ENGLISH)
+        )
     }
 }
