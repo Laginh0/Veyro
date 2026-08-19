@@ -2449,6 +2449,7 @@ private fun SessionControls(
                     sharedFolderName = uiState.sharedFolderName,
                     remoteItems = uiState.remoteFileItems,
                     remoteParentId = uiState.remoteFileParentId,
+                    remoteMessage = uiState.remoteFileMessage,
                     onChooseSharedFolder = extendedFeatureActions.onChooseSharedFolder,
                     onClearSharedFolder = extendedFeatureActions.onClearSharedFolder,
                     onRequestList = extendedFeatureActions.onRequestRemoteFileList,
@@ -2724,6 +2725,7 @@ private fun RemoteFilesPanel(
     sharedFolderName: String?,
     remoteItems: List<RemoteFileItem>,
     remoteParentId: String,
+    remoteMessage: String?,
     onChooseSharedFolder: () -> Unit,
     onClearSharedFolder: () -> Unit,
     onRequestList: (String) -> Unit,
@@ -2802,6 +2804,9 @@ private fun RemoteFilesPanel(
                     }
                     HorizontalDivider()
                 }
+            } else if (remoteMessage != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(remoteMessage, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

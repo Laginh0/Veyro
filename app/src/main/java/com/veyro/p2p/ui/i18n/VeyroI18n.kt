@@ -292,6 +292,7 @@ object VeyroI18n {
         "Comando de apresentação enviado." to "Presentation command sent.",
         "Compartilhamento da pasta encerrado." to "Folder sharing stopped.",
         "Solicitação segura de pasta enviada." to "Secure folder request sent.",
+        "A pasta remota está vazia." to "The remote folder is empty.",
         "Solicitação de arquivo enviada." to "File request sent.",
         "Tela preta solicitada pela apresentação remota." to "Blackout requested by the remote presentation.",
         "Tela preta ativa • toque para sair" to "Blackout active • tap to exit",

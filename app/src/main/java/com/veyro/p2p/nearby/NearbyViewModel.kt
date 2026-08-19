@@ -264,6 +264,7 @@ data class NearbyClientUiState(
     val lastContactResult: String? = null,
     val remoteFileItems: List<RemoteFileItem> = emptyList(),
     val remoteFileParentId: String = "",
+    val remoteFileMessage: String? = null,
     val sharedFolderName: String? = null,
     val remotePresentationState: RemotePresentationState = RemotePresentationState(),
     val receivedCommands: List<ReceivedCommand> = emptyList(),
@@ -530,6 +531,7 @@ internal class NearbySessionController(
                 lastContactResult = null,
                 remoteFileItems = emptyList(),
                 remoteFileParentId = "",
+                remoteFileMessage = null,
                 remotePresentationState = RemotePresentationState(),
                 receivedCommands = emptyList(),
                 rawFileTransfers = emptyList(),
@@ -618,6 +620,7 @@ internal class NearbySessionController(
                 }.orEmpty(),
                 lastContactResult = state.lastContactResult.takeIf { settings.contactSync },
                 remoteFileItems = state.remoteFileItems.takeIf { settings.remoteFiles }.orEmpty(),
+                remoteFileMessage = state.remoteFileMessage.takeIf { settings.remoteFiles },
                 remotePresentationState = state.remotePresentationState.takeIf {
                     settings.presentationMode
                 } ?: RemotePresentationState(),
@@ -891,6 +894,7 @@ internal class NearbySessionController(
                 remoteSharedUrls = state.remoteSharedUrls.takeUnless { activeWasRemoved }.orEmpty(),
                 remoteFileItems = state.remoteFileItems.takeUnless { activeWasRemoved }.orEmpty(),
                 remoteFileParentId = state.remoteFileParentId.takeUnless { activeWasRemoved }.orEmpty(),
+                remoteFileMessage = state.remoteFileMessage.takeUnless { activeWasRemoved },
                 remotePresentationState = state.remotePresentationState.takeUnless {
                     activeWasRemoved
                 } ?: RemotePresentationState(),
@@ -931,6 +935,7 @@ internal class NearbySessionController(
                 remoteSharedUrls = emptyList(),
                 remoteFileItems = emptyList(),
                 remoteFileParentId = "",
+                remoteFileMessage = null,
                 remotePresentationState = RemotePresentationState(),
                 statusMessage = "${endpoint.name.removePrefix("Veyro - ")} selecionado."
             )
@@ -2234,12 +2239,15 @@ internal class NearbySessionController(
                 if (_uiState.value.connectedEndpointId != endpointId) return
                 val items = event.entriesList.map { it.toRemoteFileItem() }
                 _uiState.update {
+                    val message = event.resultMessage.ifBlank {
+                        if (items.isEmpty()) "A pasta remota está vazia." else
+                            "${items.size} item(ns) na pasta compartilhada."
+                    }
                     it.copy(
                         remoteFileItems = items,
                         remoteFileParentId = event.parentDocumentId,
-                        statusMessage = event.resultMessage.ifBlank {
-                            "${items.size} item(ns) na pasta compartilhada."
-                        },
+                        remoteFileMessage = message,
+                        statusMessage = message,
                         errorMessage = event.resultMessage.takeIf(String::isNotBlank)
                     )
                 }
@@ -2287,6 +2295,7 @@ internal class NearbySessionController(
                 if (_uiState.value.connectedEndpointId != endpointId) return
                 _uiState.update {
                     it.copy(
+                        remoteFileMessage = event.resultMessage,
                         statusMessage = event.resultMessage,
                         errorMessage = event.resultMessage
                     )

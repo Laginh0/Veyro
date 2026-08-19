@@ -2,7 +2,7 @@
 
 Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly, without requiring a central cloud service to transport data. Every device can discover, receive, and send information through the same interface, with no fixed sender or receiver role.
 
-> Current status: **Alpha 0.1.5**. This version is under active development and intended for testing.
+> Current status: **Alpha 0.1.6**. This version is under active development and intended for testing.
 
 ## Key features
 
@@ -149,7 +149,7 @@ Veyro is an independent project with its own interface, architecture, and roadma
 
 ## Current release
 
-The current test build is [Veyro Alpha 0.1.5](https://github.com/Laginh0/Veyro/releases/tag/v0.1.5-alpha).
+The current test build is [Veyro Alpha 0.1.6](https://github.com/Laginh0/Veyro/releases/tag/v0.1.6-alpha).
 
 Alpha APKs use a development signing key. Confirm that an existing installation uses the same key before attempting an update.
 
