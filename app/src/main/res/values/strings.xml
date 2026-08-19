@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_input_accessibility_description">Permite executar gestos e inserir texto recebidos de um aparelho Veyro conectado. Nenhum conteúdo da tela é transmitido.</string>
+</resources>

@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package veyro.protocol;
+
+option java_package = "com.veyro.p2p.protocol";
+option java_multiple_files = true;
+option optimize_for = LITE_RUNTIME;
+
+// Envelope shared by the feature messages introduced after the transfer core.
+message VeyroMessage {
+  string protocol_version = 1;
+
+  oneof payload {
+    BatteryStatus battery_status = 10;
+    FindDeviceRequest find_device_request = 11;
+    NotificationSyncEvent notification_sync_event = 12;
+    MediaControlEvent media_control_event = 13;
+    TelecommunicationEvent telecommunication_event = 14;
+    CustomCommandEvent custom_command_event = 15;
+    UrlShareEvent url_share_event = 16;
+    RemoteInputEvent remote_input_event = 17;
+  }
+}
+
+message BatteryStatus {
+  int32 charge_percentage = 1;
+  bool is_plugged_in = 2;
+  PowerSourceType power_source_type = 3;
+  int64 event_timestamp = 4;
+}
+
+enum PowerSourceType {
+  UNKNOWN_SOURCE = 0;
+  AC_WALL_OUTLET = 1;
+  USB_COMPUTER_PORT = 2;
+  WIRELESS_QI = 3;
+}
+
+message FindDeviceRequest {
+  FindDeviceTrigger trigger_command = 1;
+  float volume_scalar = 2;
+}
+
+enum FindDeviceTrigger {
+  FIND_DEVICE_TRIGGER_UNKNOWN = 0;
+  START_ALARM_SEQUENCE = 1;
+  TERMINATE_ALARM_SEQUENCE = 2;
+}
+
+message NotificationSyncEvent {
+  NotificationSyncAction sync_action = 1;
+  string notification_key = 2;
+  string package_name = 3;
+  string app_name = 4;
+  string title = 5;
+  string text_body = 6;
+  bool is_clearable = 7;
+}
+
+enum NotificationSyncAction {
+  NOTIFICATION_SYNC_ACTION_UNKNOWN = 0;
+  POST_NEW = 1;
+  REMOVE_EXISTING = 2;
+  REMOTE_DISMISS_REQUEST = 3;
+}
+
+message MediaControlEvent {
+  MediaEventCategory event_category = 1;
+  int32 playback_status = 2;
+  string track_name = 3;
+  string artist_name = 4;
+  int64 current_position_ms = 5;
+}
+
+enum MediaEventCategory {
+  MEDIA_EVENT_CATEGORY_UNKNOWN = 0;
+  STATE_REPORT = 1;
+  CMD_PLAY = 2;
+  CMD_PAUSE = 3;
+  CMD_NEXT = 4;
+  CMD_PREV = 5;
+  CMD_VOL_UP = 6;
+  CMD_VOL_DOWN = 7;
+}
+
+message TelecommunicationEvent {
+  TelecommunicationType telecommunication_type = 1;
+  string identity_label = 2;
+  string address_number = 3;
+  string text_payload = 4;
+  int64 epoch_timestamp = 5;
+}
+
+enum TelecommunicationType {
+  TELECOMMUNICATION_TYPE_UNKNOWN = 0;
+  INBOUND_CALL = 1;
+  MISSED_CALL = 2;
+  SMS_RECEIVED_EVENT = 3;
+  SMS_TRANSMIT_ORDER = 4;
+}
+
+message CustomCommandEvent {
+  string command_tracking_id = 1;
+  ExecutionTypeCategory execution_type_category = 2;
+  string encoded_command_string = 3;
+  bool await_output_confirmation = 4;
+  bool execution_succeeded = 5;
+  string execution_output = 6;
+}
+
+enum ExecutionTypeCategory {
+  EXECUTION_TYPE_CATEGORY_UNKNOWN = 0;
+  RAW_SHELL_COMMAND = 1;
+  NATIVE_BROADCAST_INTENT = 2;
+  SYSTEM_URI_ACTION_CALL = 3;
+  EXECUTION_RESULT = 4;
+}
+
+message UrlShareEvent {
+  string hyperlink_target = 1;
+  bool requires_immediate_focus = 2;
+  bool was_accepted = 3;
+  string result_message = 4;
+}
+
+message RemoteInputEvent {
+  RemoteInputCommand input_command = 1;
+  float delta_axis_x = 2;
+  float delta_axis_y = 3;
+  string keyboard_char = 4;
+  int32 multi_pointer_count = 5;
+}
+
+enum RemoteInputCommand {
+  REMOTE_INPUT_COMMAND_UNKNOWN = 0;
+  MOUSE_DELTA = 1;
+  SINGLE_TAP = 2;
+  DOUBLE_TAP = 3;
+  SCROLL_GESTURE = 4;
+  KEYBOARD_INPUT = 5;
+}
