@@ -2654,6 +2654,7 @@ private fun DrawingTabletPanel(
     var heightPixels by remember { mutableStateOf(1) }
     var lastPressure by remember { mutableStateOf(0f) }
     var stylusDetected by remember { mutableStateOf(false) }
+    var toolLabel by remember { mutableStateOf("Toque ou use uma caneta") }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Mesa digitalizadora", fontWeight = FontWeight.SemiBold)
@@ -2676,6 +2677,12 @@ private fun DrawingTabletPanel(
                         val isStylus = toolType == MotionEvent.TOOL_TYPE_STYLUS ||
                             toolType == MotionEvent.TOOL_TYPE_ERASER
                         stylusDetected = stylusDetected || isStylus
+                        toolLabel = when (toolType) {
+                            MotionEvent.TOOL_TYPE_ERASER -> "Borracha"
+                            MotionEvent.TOOL_TYPE_STYLUS -> "Stylus"
+                            MotionEvent.TOOL_TYPE_FINGER -> "Toque"
+                            else -> "Ponteiro"
+                        }
                         lastPressure = event.pressure.coerceIn(0f, 1f)
                         val tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
                         val orientation = event.orientation
@@ -2700,7 +2707,13 @@ private fun DrawingTabletPanel(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Text(if (stylusDetected) "Stylus • pressão ${(lastPressure * 100).toInt()}%" else "Toque ou use uma caneta")
+                Text(
+                    if (stylusDetected || lastPressure > 0f) {
+                        "$toolLabel • pressão ${(lastPressure * 100).toInt()}%"
+                    } else {
+                        toolLabel
+                    }
+                )
             }
         }
     }

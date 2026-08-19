@@ -275,6 +275,9 @@ object VeyroI18n {
         "Tela preta" to "Blackout",
         "A área transmite posição, pressão, inclinação e o botão principal do stylus." to "The pad transmits position, pressure, tilt, and the stylus primary button.",
         "Toque ou use uma caneta" to "Touch or use a stylus",
+        "Borracha" to "Eraser",
+        "Toque" to "Touch",
+        "Ponteiro" to "Pointer",
         "Acesso remoto a arquivos" to "Remote file access",
         "Nenhuma pasta local exposta. O restante do armazenamento permanece inacessível." to "No local folder is exposed. The rest of storage remains inaccessible.",
         "Escolher pasta" to "Choose folder",
@@ -363,6 +366,9 @@ object VeyroI18n {
         text.startsWith("Remoto: ") -> "Remote: " + text.removePrefix("Remoto: ")
             .replace(" • tela preta", " • blackout")
         text.startsWith("Stylus • pressão ") -> "Stylus • pressure " + text.removePrefix("Stylus • pressão ")
+        text.startsWith("Borracha • pressão ") -> "Eraser • pressure " + text.removePrefix("Borracha • pressão ")
+        text.startsWith("Toque • pressão ") -> "Touch • pressure " + text.removePrefix("Toque • pressão ")
+        text.startsWith("Ponteiro • pressão ") -> "Pointer • pressure " + text.removePrefix("Ponteiro • pressão ")
         text.startsWith("Pasta local compartilhada: ") ->
             "Shared local folder: " + text.removePrefix("Pasta local compartilhada: ")
         text.startsWith("Enviando ") -> "Sending " + text.removePrefix("Enviando ")

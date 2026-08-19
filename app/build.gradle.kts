@@ -13,8 +13,8 @@ android {
         applicationId = "com.veyro.p2p"
         minSdk = 21
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.1.4-alpha"
+        versionCode = 5
+        versionName = "0.1.5-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
