@@ -4,6 +4,7 @@ import android.content.ContentProviderOperation
 import android.content.Context
 import android.net.Uri
 import android.provider.ContactsContract
+import android.util.Patterns
 import com.veyro.p2p.protocol.ContactRecord
 
 class ContactSyncManager(context: Context) {
@@ -31,8 +32,15 @@ class ContactSyncManager(context: Context) {
     }
 
     fun importContact(contact: ContactRecord): Result<Unit> = runCatching {
-        require(contact.displayName.isNotBlank() ||
-            contact.phoneNumbersList.isNotEmpty() || contact.emailAddressesList.isNotEmpty()) {
+        val cleanPhones = contact.phoneNumbersList.map(String::trim)
+            .filter { it.any(Char::isDigit) }
+            .distinct()
+            .take(MAX_VALUES)
+        val cleanEmails = contact.emailAddressesList.map(String::trim)
+            .filter { Patterns.EMAIL_ADDRESS.matcher(it).matches() }
+            .distinct()
+            .take(MAX_VALUES)
+        require(contact.displayName.isNotBlank() || cleanPhones.isNotEmpty() || cleanEmails.isNotEmpty()) {
             "Contato vazio."
         }
         val operations = arrayListOf<ContentProviderOperation>()
@@ -48,7 +56,7 @@ class ContactSyncManager(context: Context) {
                 )
                 .build()
         }
-        contact.phoneNumbersList.distinct().take(MAX_VALUES).forEach { number ->
+        cleanPhones.forEach { number ->
             operations += dataInsert(ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
                 .withValue(ContactsContract.CommonDataKinds.Phone.NUMBER, number.take(MAX_VALUE_LENGTH))
                 .withValue(
@@ -57,7 +65,7 @@ class ContactSyncManager(context: Context) {
                 )
                 .build()
         }
-        contact.emailAddressesList.distinct().take(MAX_VALUES).forEach { email ->
+        cleanEmails.forEach { email ->
             operations += dataInsert(ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)
                 .withValue(ContactsContract.CommonDataKinds.Email.ADDRESS, email.take(MAX_VALUE_LENGTH))
                 .withValue(
