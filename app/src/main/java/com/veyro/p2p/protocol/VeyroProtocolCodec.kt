@@ -71,6 +71,24 @@ object VeyroProtocolCodec {
         .build()
         .toByteArray()
 
+    fun encodeContactSyncEvent(event: ContactSyncEvent): ByteArray = VeyroMessage.newBuilder()
+        .setProtocolVersion(PROTOCOL_VERSION)
+        .setContactSyncEvent(event)
+        .build()
+        .toByteArray()
+
+    fun encodePresentationEvent(event: PresentationEvent): ByteArray = VeyroMessage.newBuilder()
+        .setProtocolVersion(PROTOCOL_VERSION)
+        .setPresentationEvent(event)
+        .build()
+        .toByteArray()
+
+    fun encodeRemoteFileEvent(event: RemoteFileEvent): ByteArray = VeyroMessage.newBuilder()
+        .setProtocolVersion(PROTOCOL_VERSION)
+        .setRemoteFileEvent(event)
+        .build()
+        .toByteArray()
+
     fun decodeFeatureMessage(bytes: ByteArray): VeyroMessage? = runCatching {
         VeyroMessage.parseFrom(bytes)
     }.getOrNull()

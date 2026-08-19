@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.RequiresApi
 import com.veyro.p2p.protocol.RemoteInputCommand
 import com.veyro.p2p.protocol.RemoteInputEvent
+import com.veyro.p2p.protocol.StylusAction
 
 class VeyroAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -20,6 +21,7 @@ class VeyroAccessibilityService : AccessibilityService() {
     private var pendingDeltaX = 0f
     private var pendingDeltaY = 0f
     private var moveScheduled = false
+    private var stylusHasMoved = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -53,8 +55,61 @@ class VeyroAccessibilityService : AccessibilityService() {
             )
 
             RemoteInputCommand.KEYBOARD_INPUT -> insertTextOrGlobalAction(event.keyboardChar)
+            RemoteInputCommand.STYLUS_EVENT -> dispatchStylus(event)
             RemoteInputCommand.REMOTE_INPUT_COMMAND_UNKNOWN,
             RemoteInputCommand.UNRECOGNIZED -> false
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun dispatchStylus(event: RemoteInputEvent): Boolean {
+        val targetX = event.normalizedX.coerceIn(0f, 1f) * screenWidth()
+        val targetY = event.normalizedY.coerceIn(0f, 1f) * screenHeight()
+        return when (event.stylusAction) {
+            StylusAction.STYLUS_DOWN -> {
+                cursorX = targetX
+                cursorY = targetY
+                stylusHasMoved = false
+                true
+            }
+
+            StylusAction.STYLUS_MOVE -> {
+                ensureCursor()
+                val path = Path().apply {
+                    moveTo(cursorX, cursorY)
+                    lineTo(targetX, targetY)
+                }
+                cursorX = targetX
+                cursorY = targetY
+                stylusHasMoved = true
+                dispatchGesture(
+                    GestureDescription.Builder()
+                        .addStroke(
+                            GestureDescription.StrokeDescription(
+                                path,
+                                0,
+                                STYLUS_SEGMENT_DURATION_MILLIS
+                            )
+                        )
+                        .build(),
+                    null,
+                    null
+                )
+            }
+
+            StylusAction.STYLUS_UP -> {
+                cursorX = targetX
+                cursorY = targetY
+                if (stylusHasMoved) true else dispatchTap(doubleTap = false)
+            }
+
+            StylusAction.STYLUS_CANCEL -> {
+                stylusHasMoved = false
+                true
+            }
+
+            StylusAction.STYLUS_ACTION_UNKNOWN,
+            StylusAction.UNRECOGNIZED -> false
         }
     }
 
@@ -166,6 +221,7 @@ class VeyroAccessibilityService : AccessibilityService() {
         const val TOKEN_BACKSPACE = "{BACKSPACE}"
 
         private const val FRAME_BATCH_MILLIS = 16L
+        private const val STYLUS_SEGMENT_DURATION_MILLIS = 16L
         private const val TAP_DURATION_MILLIS = 60L
         private const val DOUBLE_TAP_DELAY_MILLIS = 140L
         private const val SCROLL_DURATION_MILLIS = 220L

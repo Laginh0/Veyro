@@ -21,6 +21,9 @@ message VeyroMessage {
     RemoteInputEvent remote_input_event = 17;
     ConnectivityStatus connectivity_status = 18;
     PingEvent ping_event = 19;
+    ContactSyncEvent contact_sync_event = 20;
+    PresentationEvent presentation_event = 21;
+    RemoteFileEvent remote_file_event = 22;
   }
 }
 
@@ -131,6 +134,14 @@ message RemoteInputEvent {
   float delta_axis_y = 3;
   string keyboard_char = 4;
   int32 multi_pointer_count = 5;
+  StylusAction stylus_action = 6;
+  float normalized_x = 7;
+  float normalized_y = 8;
+  float pressure = 9;
+  float tilt_x = 10;
+  float tilt_y = 11;
+  bool primary_button_pressed = 12;
+  bool is_stylus = 13;
 }
 
 enum RemoteInputCommand {
@@ -140,6 +151,15 @@ enum RemoteInputCommand {
   DOUBLE_TAP = 3;
   SCROLL_GESTURE = 4;
   KEYBOARD_INPUT = 5;
+  STYLUS_EVENT = 6;
+}
+
+enum StylusAction {
+  STYLUS_ACTION_UNKNOWN = 0;
+  STYLUS_DOWN = 1;
+  STYLUS_MOVE = 2;
+  STYLUS_UP = 3;
+  STYLUS_CANCEL = 4;
 }
 
 message ConnectivityStatus {
@@ -171,4 +191,63 @@ enum PingAction {
   PING_ACTION_UNKNOWN = 0;
   PING_REQUEST = 1;
   PING_RESPONSE = 2;
+}
+
+message ContactRecord {
+  string display_name = 1;
+  repeated string phone_numbers = 2;
+  repeated string email_addresses = 3;
+}
+
+message ContactSyncEvent {
+  string request_id = 1;
+  ContactSyncAction action = 2;
+  ContactRecord contact = 3;
+  bool accepted = 4;
+  string result_message = 5;
+}
+
+enum ContactSyncAction {
+  CONTACT_SYNC_ACTION_UNKNOWN = 0;
+  CONTACT_OFFER = 1;
+  CONTACT_IMPORT_RESULT = 2;
+}
+
+message PresentationEvent {
+  PresentationAction action = 1;
+  int64 elapsed_millis = 2;
+}
+
+enum PresentationAction {
+  PRESENTATION_ACTION_UNKNOWN = 0;
+  PRESENTATION_START = 1;
+  PRESENTATION_STOP = 2;
+  PRESENTATION_BLACKOUT_ON = 3;
+  PRESENTATION_BLACKOUT_OFF = 4;
+  PRESENTATION_TIMER_SYNC = 5;
+}
+
+message RemoteFileEntry {
+  string document_id = 1;
+  string display_name = 2;
+  string mime_type = 3;
+  int64 size_bytes = 4;
+  bool is_directory = 5;
+}
+
+message RemoteFileEvent {
+  string request_id = 1;
+  RemoteFileAction action = 2;
+  string parent_document_id = 3;
+  string requested_document_id = 4;
+  repeated RemoteFileEntry entries = 5;
+  string result_message = 6;
+}
+
+enum RemoteFileAction {
+  REMOTE_FILE_ACTION_UNKNOWN = 0;
+  LIST_REQUEST = 1;
+  LIST_RESPONSE = 2;
+  DOWNLOAD_REQUEST = 3;
+  DOWNLOAD_REJECTED = 4;
 }

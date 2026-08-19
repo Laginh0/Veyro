@@ -187,4 +187,84 @@ class VeyroProtocolCodecTest {
         assertEquals(VeyroMessage.PayloadCase.PING_EVENT, decoded?.payloadCase)
         assertEquals(event, decoded?.pingEvent)
     }
+
+    @Test
+    fun contactSync_roundTripsWithoutPhotoData() {
+        val event = ContactSyncEvent.newBuilder()
+            .setRequestId("contact-request")
+            .setAction(ContactSyncAction.CONTACT_OFFER)
+            .setContact(
+                ContactRecord.newBuilder()
+                    .setDisplayName("Test Contact")
+                    .addPhoneNumbers("+5511999999999")
+                    .addEmailAddresses("test@example.com")
+            )
+            .build()
+
+        val decoded = VeyroProtocolCodec.decodeFeatureMessage(
+            VeyroProtocolCodec.encodeContactSyncEvent(event)
+        )
+
+        assertEquals(VeyroMessage.PayloadCase.CONTACT_SYNC_EVENT, decoded?.payloadCase)
+        assertEquals(event, decoded?.contactSyncEvent)
+    }
+
+    @Test
+    fun presentationEvent_roundTripsThroughEnvelope() {
+        val event = PresentationEvent.newBuilder()
+            .setAction(PresentationAction.PRESENTATION_TIMER_SYNC)
+            .setElapsedMillis(42_000L)
+            .build()
+
+        val decoded = VeyroProtocolCodec.decodeFeatureMessage(
+            VeyroProtocolCodec.encodePresentationEvent(event)
+        )
+
+        assertEquals(VeyroMessage.PayloadCase.PRESENTATION_EVENT, decoded?.payloadCase)
+        assertEquals(event, decoded?.presentationEvent)
+    }
+
+    @Test
+    fun stylusEvent_preservesPressureTiltAndToolIdentity() {
+        val event = RemoteInputEvent.newBuilder()
+            .setInputCommand(RemoteInputCommand.STYLUS_EVENT)
+            .setStylusAction(StylusAction.STYLUS_MOVE)
+            .setNormalizedX(0.25f)
+            .setNormalizedY(0.75f)
+            .setPressure(0.63f)
+            .setTiltX(-0.2f)
+            .setTiltY(0.4f)
+            .setPrimaryButtonPressed(true)
+            .setIsStylus(true)
+            .build()
+
+        val decoded = VeyroProtocolCodec.decodeFeatureMessage(
+            VeyroProtocolCodec.encodeRemoteInputEvent(event)
+        )
+
+        assertEquals(event, decoded?.remoteInputEvent)
+    }
+
+    @Test
+    fun remoteFileEvent_roundTripsOpaqueDocumentIds() {
+        val event = RemoteFileEvent.newBuilder()
+            .setRequestId("list-request")
+            .setAction(RemoteFileAction.LIST_RESPONSE)
+            .setParentDocumentId("opaque:root")
+            .addEntries(
+                RemoteFileEntry.newBuilder()
+                    .setDocumentId("opaque:root/file")
+                    .setDisplayName("file.txt")
+                    .setMimeType("text/plain")
+                    .setSizeBytes(128L)
+            )
+            .build()
+
+        val decoded = VeyroProtocolCodec.decodeFeatureMessage(
+            VeyroProtocolCodec.encodeRemoteFileEvent(event)
+        )
+
+        assertEquals(VeyroMessage.PayloadCase.REMOTE_FILE_EVENT, decoded?.payloadCase)
+        assertEquals(event, decoded?.remoteFileEvent)
+    }
 }

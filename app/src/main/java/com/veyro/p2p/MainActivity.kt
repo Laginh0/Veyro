@@ -10,7 +10,10 @@ import android.content.pm.PackageManager
 import android.media.session.PlaybackState
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.provider.ContactsContract
 import android.provider.Settings
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -96,6 +99,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -103,7 +107,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -132,12 +138,17 @@ import com.veyro.p2p.nearby.RemoteMediaState
 import com.veyro.p2p.nearby.RemoteTelecommunicationEvent
 import com.veyro.p2p.nearby.RemoteCustomCommandResult
 import com.veyro.p2p.nearby.RemoteSharedUrl
+import com.veyro.p2p.nearby.PendingContactImport
+import com.veyro.p2p.nearby.RemoteFileItem
+import com.veyro.p2p.nearby.RemotePresentationState
 import com.veyro.p2p.features.commands.SafeCustomCommandExecutor
 import com.veyro.p2p.features.remoteinput.VeyroAccessibilityService
 import com.veyro.p2p.permissions.PermissionManager
 import com.veyro.p2p.protocol.MediaEventCategory
 import com.veyro.p2p.protocol.TelecommunicationType
 import com.veyro.p2p.protocol.RemoteInputCommand
+import com.veyro.p2p.protocol.PresentationAction
+import com.veyro.p2p.protocol.StylusAction
 import com.veyro.p2p.settings.EnergyMode
 import com.veyro.p2p.settings.AppLanguage
 import com.veyro.p2p.settings.FeatureSettings
@@ -150,6 +161,20 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
+
+private data class ExtendedFeatureActions(
+    val onSelectConnectedEndpoint: (String) -> Unit,
+    val onPickContact: () -> Unit,
+    val onApproveContact: (String) -> Unit,
+    val onRejectContact: (String) -> Unit,
+    val onPresentationAction: (PresentationAction, Long) -> Unit,
+    val onDismissRemoteBlackout: () -> Unit,
+    val onStylusEvent: (StylusAction, Float, Float, Float, Float, Float, Boolean, Boolean) -> Unit,
+    val onChooseSharedFolder: () -> Unit,
+    val onClearSharedFolder: () -> Unit,
+    val onRequestRemoteFileList: (String) -> Unit,
+    val onRequestRemoteFileDownload: (String) -> Unit
+)
 
 class MainActivity : ComponentActivity() {
     private lateinit var permissionManager: PermissionManager
@@ -192,6 +217,45 @@ class MainActivity : ComponentActivity() {
             ) { uri ->
                 uri?.let(nearbyViewModel::sendFile)
             }
+            var pendingContactRequestId by rememberSaveable { mutableStateOf<String?>(null) }
+            val writeContactsPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                pendingContactRequestId?.let { requestId ->
+                    if (granted) nearbyViewModel.approveContactImport(requestId)
+                }
+                pendingContactRequestId = null
+            }
+            val contactPickerLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.PickContact()
+            ) { uri -> uri?.let(nearbyViewModel::shareContact) }
+            val sharedFolderLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.OpenDocumentTree()
+            ) { uri -> uri?.let(nearbyViewModel::setSharedFolder) }
+            val extendedFeatureActions = ExtendedFeatureActions(
+                onSelectConnectedEndpoint = nearbyViewModel::selectConnectedEndpoint,
+                onPickContact = { contactPickerLauncher.launch(null) },
+                onApproveContact = { requestId ->
+                    if (ContextCompat.checkSelfPermission(
+                            this,
+                            Manifest.permission.WRITE_CONTACTS
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        nearbyViewModel.approveContactImport(requestId)
+                    } else {
+                        pendingContactRequestId = requestId
+                        writeContactsPermissionLauncher.launch(Manifest.permission.WRITE_CONTACTS)
+                    }
+                },
+                onRejectContact = nearbyViewModel::rejectContactImport,
+                onPresentationAction = nearbyViewModel::sendPresentationAction,
+                onDismissRemoteBlackout = nearbyViewModel::dismissRemoteBlackout,
+                onStylusEvent = nearbyViewModel::sendStylusEvent,
+                onChooseSharedFolder = { sharedFolderLauncher.launch(null) },
+                onClearSharedFolder = nearbyViewModel::clearSharedFolder,
+                onRequestRemoteFileList = nearbyViewModel::requestRemoteFileList,
+                onRequestRemoteFileDownload = nearbyViewModel::requestRemoteFileDownload
+            )
 
             VeyroApp(
                 permissionsGranted = permissionsGranted,
@@ -251,6 +315,7 @@ class MainActivity : ComponentActivity() {
                 onSetEnergyMode = nearbyViewModel::setEnergyMode,
                 onSetAppLanguage = nearbyViewModel::setAppLanguage,
                 onSetFeatureSettings = nearbyViewModel::setFeatureSettings,
+                extendedFeatureActions = extendedFeatureActions,
                 onStopSession = nearbyViewModel::stopSession
             )
         }
@@ -350,6 +415,7 @@ private fun VeyroApp(
     onSetEnergyMode: (EnergyMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
     onSetFeatureSettings: (FeatureSettings) -> Unit,
+    extendedFeatureActions: ExtendedFeatureActions,
     onStopSession: () -> Unit
 ) {
     var showPermissionExplanation by remember { mutableStateOf(!permissionsGranted) }
@@ -393,6 +459,7 @@ private fun VeyroApp(
                 onSetEnergyMode = onSetEnergyMode,
                 onSetAppLanguage = onSetAppLanguage,
                 onSetFeatureSettings = onSetFeatureSettings,
+                extendedFeatureActions = extendedFeatureActions,
                 onStopSession = onStopSession
             )
 
@@ -415,6 +482,22 @@ private fun VeyroApp(
                         onReject = onRejectConnection
                     )
                 }
+            if (nearbyUiState.remotePresentationState.blackedOut) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .clickable(onClick = extendedFeatureActions.onDismissRemoteBlackout),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Text(
+                        "Tela preta ativa • toque para sair",
+                        modifier = Modifier.padding(bottom = 40.dp),
+                        color = Color.White.copy(alpha = 0.45f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
             }
         }
     }
@@ -457,6 +540,7 @@ private fun VeyroScreen(
     onSetEnergyMode: (EnergyMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
     onSetFeatureSettings: (FeatureSettings) -> Unit,
+    extendedFeatureActions: ExtendedFeatureActions,
     onStopSession: () -> Unit
 ) {
     if (!permissionsGranted) {
@@ -515,6 +599,7 @@ private fun VeyroScreen(
                     onSetEnergyMode = onSetEnergyMode,
                     onSetAppLanguage = onSetAppLanguage,
                     onSetFeatureSettings = onSetFeatureSettings,
+                    extendedFeatureActions = extendedFeatureActions,
                     onStopSession = onStopSession
                 )
             }
@@ -592,6 +677,7 @@ private fun VeyroScreen(
                             onSetEnergyMode = onSetEnergyMode,
                             onSetAppLanguage = onSetAppLanguage,
                             onSetFeatureSettings = onSetFeatureSettings,
+                            extendedFeatureActions = extendedFeatureActions,
                             onStopSession = onStopSession
                         )
                         VeyroCompactTopBar(
@@ -863,6 +949,7 @@ private fun VeyroDestinationContent(
     onSetEnergyMode: (EnergyMode) -> Unit,
     onSetAppLanguage: (AppLanguage) -> Unit,
     onSetFeatureSettings: (FeatureSettings) -> Unit,
+    extendedFeatureActions: ExtendedFeatureActions,
     onStopSession: () -> Unit
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
@@ -896,6 +983,7 @@ private fun VeyroDestinationContent(
                 onPickFile = onPickFile,
                 onApproveIncomingFile = onApproveIncomingFile,
                 onRejectIncomingFile = onRejectIncomingFile,
+                extendedFeatureActions = extendedFeatureActions,
                 onStopSession = onStopSession
             )
 
@@ -1032,6 +1120,7 @@ private fun ResourcesPage(
     onPickFile: () -> Unit,
     onApproveIncomingFile: (Long) -> Unit,
     onRejectIncomingFile: (Long) -> Unit,
+    extendedFeatureActions: ExtendedFeatureActions,
     onStopSession: () -> Unit
 ) {
     VeyroPage {
@@ -1062,6 +1151,7 @@ private fun ResourcesPage(
                 onPickFile = onPickFile,
                 onApproveIncomingFile = onApproveIncomingFile,
                 onRejectIncomingFile = onRejectIncomingFile,
+                extendedFeatureActions = extendedFeatureActions,
                 onStopSession = onStopSession
             )
         } else {
@@ -1249,6 +1339,13 @@ private fun FeatureSettingsPanel(
                 icon = Icons.Default.Hub,
                 onCheckedChange = { onSettingsChange(settings.copy(sharedLinks = it)) }
             )
+            FeatureToggleRow(
+                title = "Pasta remota compartilhada",
+                detail = "Exponha somente uma pasta escolhida pelo seletor seguro do Android.",
+                checked = settings.remoteFiles,
+                icon = Icons.Default.Devices,
+                onCheckedChange = { onSettingsChange(settings.copy(remoteFiles = it)) }
+            )
 
             FeatureCategoryLabel("MÍDIA E COMUNICAÇÃO")
             FeatureToggleRow(
@@ -1272,6 +1369,20 @@ private fun FeatureSettingsPanel(
                 icon = Icons.Default.Devices,
                 onCheckedChange = { onSettingsChange(settings.copy(telephonySync = it)) }
             )
+            FeatureToggleRow(
+                title = "Sincronização de contatos",
+                detail = "Ofereça contatos selecionados e confirme cada importação.",
+                checked = settings.contactSync,
+                icon = Icons.Default.Devices,
+                onCheckedChange = { onSettingsChange(settings.copy(contactSync = it)) }
+            )
+            FeatureToggleRow(
+                title = "Modo de apresentação",
+                detail = "Controle slides, tela preta e cronômetro.",
+                checked = settings.presentationMode,
+                icon = Icons.Default.AutoAwesome,
+                onCheckedChange = { onSettingsChange(settings.copy(presentationMode = it)) }
+            )
 
             FeatureCategoryLabel("ACESSO REMOTO")
             FeatureToggleRow(
@@ -1294,6 +1405,13 @@ private fun FeatureSettingsPanel(
                 checked = settings.remoteInput,
                 icon = Icons.Default.Devices,
                 onCheckedChange = { onSettingsChange(settings.copy(remoteInput = it)) }
+            )
+            FeatureToggleRow(
+                title = "Mesa digitalizadora",
+                detail = "Transmita stylus, pressão, inclinação e botão principal.",
+                checked = settings.drawingTablet,
+                icon = Icons.Default.Devices,
+                onCheckedChange = { onSettingsChange(settings.copy(drawingTablet = it)) }
             )
         }
     }
@@ -1664,17 +1782,17 @@ private fun EcosystemRadar(
     onRequestConnection: (String) -> Unit
 ) {
     val nodes = buildList {
-        uiState.connectedEndpointId?.let { connectedId ->
+        uiState.connectedEndpoints.forEach { connected ->
             add(
                 DiscoveredEndpoint(
-                    id = connectedId,
-                    name = uiState.connectedEndpointName ?: "Aparelho conectado"
+                    id = connected.id,
+                    name = connected.name
                 )
             )
         }
         addAll(
             uiState.discoveredEndpoints.filter { endpoint ->
-                endpoint.id != uiState.connectedEndpointId
+                uiState.connectedEndpoints.none { it.id == endpoint.id }
             }
         )
     }.take(5)
@@ -1757,7 +1875,7 @@ private fun EcosystemRadar(
                 }
                 nodes.forEachIndexed { index, endpoint ->
                     val angle = (index * 2.0 * Math.PI / nodes.size.coerceAtLeast(1)) - Math.PI / 2
-                    val isConnected = endpoint.id == uiState.connectedEndpointId
+                    val isConnected = uiState.connectedEndpoints.any { it.id == endpoint.id }
                     RadarNode(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -2142,6 +2260,7 @@ private fun SessionControls(
     onPickFile: () -> Unit,
     onApproveIncomingFile: (Long) -> Unit,
     onRejectIncomingFile: (Long) -> Unit,
+    extendedFeatureActions: ExtendedFeatureActions,
     onStopSession: () -> Unit
 ) {
     when (uiState.connectionStage) {
@@ -2231,6 +2350,13 @@ private fun SessionControls(
                 stopButtonLabel = "Desconectar",
                 onStopSession = onStopSession
             )
+            if (uiState.connectedEndpoints.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                ConnectedEndpointSelector(
+                    uiState = uiState,
+                    onSelect = extendedFeatureActions.onSelectConnectedEndpoint
+                )
+            }
             val features = uiState.featureSettings
             if (features.batterySync) {
                 Spacer(modifier = Modifier.height(12.dp))
@@ -2270,6 +2396,14 @@ private fun SessionControls(
                     onCommand = onMediaControlCommand
                 )
             }
+            if (features.presentationMode) {
+                Spacer(modifier = Modifier.height(12.dp))
+                PresentationPanel(
+                    remoteState = uiState.remotePresentationState,
+                    onMediaCommand = onMediaControlCommand,
+                    onPresentationAction = extendedFeatureActions.onPresentationAction
+                )
+            }
             if (features.telephonySync) {
                 Spacer(modifier = Modifier.height(12.dp))
                 TelephonyPanel(
@@ -2291,9 +2425,35 @@ private fun SessionControls(
                     onShareUrl = onShareUrl
                 )
             }
+            if (features.contactSync) {
+                Spacer(modifier = Modifier.height(12.dp))
+                ContactSyncPanel(
+                    pendingImports = uiState.pendingContactImports,
+                    lastResult = uiState.lastContactResult,
+                    onPickContact = extendedFeatureActions.onPickContact,
+                    onApprove = extendedFeatureActions.onApproveContact,
+                    onReject = extendedFeatureActions.onRejectContact
+                )
+            }
             if (features.remoteInput) {
                 Spacer(modifier = Modifier.height(12.dp))
                 RemoteInputPanel(onRemoteInput = onRemoteInput)
+            }
+            if (features.drawingTablet) {
+                Spacer(modifier = Modifier.height(12.dp))
+                DrawingTabletPanel(onStylusEvent = extendedFeatureActions.onStylusEvent)
+            }
+            if (features.remoteFiles) {
+                Spacer(modifier = Modifier.height(12.dp))
+                RemoteFilesPanel(
+                    sharedFolderName = uiState.sharedFolderName,
+                    remoteItems = uiState.remoteFileItems,
+                    remoteParentId = uiState.remoteFileParentId,
+                    onChooseSharedFolder = extendedFeatureActions.onChooseSharedFolder,
+                    onClearSharedFolder = extendedFeatureActions.onClearSharedFolder,
+                    onRequestList = extendedFeatureActions.onRequestRemoteFileList,
+                    onRequestDownload = extendedFeatureActions.onRequestRemoteFileDownload
+                )
             }
             if (features.safeCommands) {
                 Spacer(modifier = Modifier.height(12.dp))
@@ -2313,6 +2473,324 @@ private fun SessionControls(
             }
         }
     }
+}
+
+@Composable
+private fun ConnectedEndpointSelector(
+    uiState: NearbyClientUiState,
+    onSelect: (String) -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Aparelhos conectados (${uiState.connectedEndpoints.size})",
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Escolha o destino dos controles e dados exibidos abaixo.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            uiState.connectedEndpoints.forEach { endpoint ->
+                val selected = endpoint.id == uiState.connectedEndpointId
+                if (selected) {
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { onSelect(endpoint.id) }
+                    ) { Text(endpoint.name.removePrefix("Veyro - ")) }
+                } else {
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { onSelect(endpoint.id) }
+                    ) { Text(endpoint.name.removePrefix("Veyro - ")) }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContactSyncPanel(
+    pendingImports: List<PendingContactImport>,
+    lastResult: String?,
+    onPickContact: () -> Unit,
+    onApprove: (String) -> Unit,
+    onReject: (String) -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Sincronização de contatos", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Selecione um contato no Android. Fotos não são enviadas e toda importação exige confirmação local.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(modifier = Modifier.fillMaxWidth(), onClick = onPickContact) {
+                Text("Selecionar e oferecer contato")
+            }
+            pendingImports.forEach { pending ->
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                Text(pending.displayName.ifBlank { "Contato sem nome" }, fontWeight = FontWeight.Bold)
+                Text("Enviado por ${pending.senderName.removePrefix("Veyro - ")}", style = MaterialTheme.typography.labelSmall)
+                pending.phoneNumbers.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                pending.emailAddresses.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        onClick = { onApprove(pending.requestId) }
+                    ) { Text("Importar") }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { onReject(pending.requestId) }
+                    ) { Text("Recusar") }
+                }
+            }
+            lastResult?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PresentationPanel(
+    remoteState: RemotePresentationState,
+    onMediaCommand: (MediaEventCategory) -> Unit,
+    onPresentationAction: (PresentationAction, Long) -> Unit
+) {
+    var running by rememberSaveable { mutableStateOf(false) }
+    var blackedOut by rememberSaveable { mutableStateOf(false) }
+    var startedAt by rememberSaveable { mutableStateOf(0L) }
+    var elapsedMillis by rememberSaveable { mutableStateOf(0L) }
+    LaunchedEffect(running, startedAt) {
+        while (running) {
+            elapsedMillis = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
+            onPresentationAction(PresentationAction.PRESENTATION_TIMER_SYNC, elapsedMillis)
+            delay(1_000)
+        }
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Modo de apresentação", fontWeight = FontWeight.SemiBold)
+            Text(
+                if (running) "Cronômetro: ${formatMediaPosition(elapsedMillis)}" else "Cronômetro parado",
+                style = MaterialTheme.typography.titleMedium
+            )
+            if (remoteState.active) {
+                Text(
+                    "Remoto: ${formatMediaPosition(remoteState.elapsedMillis)}" +
+                        if (remoteState.blackedOut) " • tela preta" else "",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { onMediaCommand(MediaEventCategory.CMD_PREV) }
+                ) { Text("Anterior") }
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = { onMediaCommand(MediaEventCategory.CMD_NEXT) }
+                ) { Text("Próximo") }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        if (running) {
+                            running = false
+                            onPresentationAction(PresentationAction.PRESENTATION_STOP, elapsedMillis)
+                        } else {
+                            elapsedMillis = 0L
+                            startedAt = SystemClock.elapsedRealtime()
+                            running = true
+                            onPresentationAction(PresentationAction.PRESENTATION_START, 0L)
+                        }
+                    }
+                ) { Text(if (running) "Parar" else "Iniciar") }
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        blackedOut = !blackedOut
+                        onPresentationAction(
+                            if (blackedOut) PresentationAction.PRESENTATION_BLACKOUT_ON
+                            else PresentationAction.PRESENTATION_BLACKOUT_OFF,
+                            elapsedMillis
+                        )
+                    }
+                ) { Text(if (blackedOut) "Restaurar tela" else "Tela preta") }
+            }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun DrawingTabletPanel(
+    onStylusEvent: (StylusAction, Float, Float, Float, Float, Float, Boolean, Boolean) -> Unit
+) {
+    var widthPixels by remember { mutableStateOf(1) }
+    var heightPixels by remember { mutableStateOf(1) }
+    var lastPressure by remember { mutableStateOf(0f) }
+    var stylusDetected by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Mesa digitalizadora", fontWeight = FontWeight.SemiBold)
+            Text(
+                "A área transmite posição, pressão, inclinação e o botão principal do stylus.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(260.dp)
+                    .onSizeChanged {
+                        widthPixels = it.width.coerceAtLeast(1)
+                        heightPixels = it.height.coerceAtLeast(1)
+                    }
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(18.dp))
+                    .pointerInteropFilter { event ->
+                        val toolType = event.getToolType(0)
+                        val isStylus = toolType == MotionEvent.TOOL_TYPE_STYLUS ||
+                            toolType == MotionEvent.TOOL_TYPE_ERASER
+                        stylusDetected = stylusDetected || isStylus
+                        lastPressure = event.pressure.coerceIn(0f, 1f)
+                        val tilt = event.getAxisValue(MotionEvent.AXIS_TILT)
+                        val orientation = event.orientation
+                        val action = when (event.actionMasked) {
+                            MotionEvent.ACTION_DOWN -> StylusAction.STYLUS_DOWN
+                            MotionEvent.ACTION_MOVE -> StylusAction.STYLUS_MOVE
+                            MotionEvent.ACTION_UP -> StylusAction.STYLUS_UP
+                            else -> StylusAction.STYLUS_CANCEL
+                        }
+                        onStylusEvent(
+                            action,
+                            (event.x / widthPixels).coerceIn(0f, 1f),
+                            (event.y / heightPixels).coerceIn(0f, 1f),
+                            lastPressure,
+                            (sin(orientation) * tilt).coerceIn(-1f, 1f),
+                            (cos(orientation) * tilt).coerceIn(-1f, 1f),
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                                event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY != 0,
+                            isStylus
+                        )
+                        true
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(if (stylusDetected) "Stylus • pressão ${(lastPressure * 100).toInt()}%" else "Toque ou use uma caneta")
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteFilesPanel(
+    sharedFolderName: String?,
+    remoteItems: List<RemoteFileItem>,
+    remoteParentId: String,
+    onChooseSharedFolder: () -> Unit,
+    onClearSharedFolder: () -> Unit,
+    onRequestList: (String) -> Unit,
+    onRequestDownload: (String) -> Unit
+) {
+    var history by remember { mutableStateOf(emptyList<String>()) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Acesso remoto a arquivos", fontWeight = FontWeight.SemiBold)
+            Text(
+                sharedFolderName?.let { "Pasta local compartilhada: $it" }
+                    ?: "Nenhuma pasta local exposta. O restante do armazenamento permanece inacessível.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onChooseSharedFolder
+                ) { Text("Escolher pasta") }
+                if (sharedFolderName != null) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = onClearSharedFolder
+                    ) { Text("Parar acesso") }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        history = emptyList()
+                        onRequestList("")
+                    }
+                ) { Text("Abrir pasta remota") }
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = history.isNotEmpty(),
+                    onClick = {
+                        val parent = history.lastOrNull().orEmpty()
+                        history = history.dropLast(1)
+                        onRequestList(parent)
+                    }
+                ) { Text("Voltar") }
+            }
+            if (remoteItems.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                remoteItems.forEach { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (item.isDirectory) {
+                                    history = history + remoteParentId
+                                    onRequestList(item.documentId)
+                                } else {
+                                    onRequestDownload(item.documentId)
+                                }
+                            }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(if (item.isDirectory) "Pasta" else "Arquivo", style = MaterialTheme.typography.labelSmall)
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (!item.isDirectory) Text(formatFileSize(item.sizeBytes), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
+private fun formatFileSize(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1_024L -> "%.1f KB".format(bytes / 1_024.0)
+    else -> "$bytes B"
 }
 
 @Composable
@@ -3352,6 +3830,19 @@ private fun VeyroScreenPreview() {
             onSetEnergyMode = {},
             onSetAppLanguage = {},
             onSetFeatureSettings = {},
+            extendedFeatureActions = ExtendedFeatureActions(
+                onSelectConnectedEndpoint = {},
+                onPickContact = {},
+                onApproveContact = {},
+                onRejectContact = {},
+                onPresentationAction = { _, _ -> },
+                onDismissRemoteBlackout = {},
+                onStylusEvent = { _, _, _, _, _, _, _, _ -> },
+                onChooseSharedFolder = {},
+                onClearSharedFolder = {},
+                onRequestRemoteFileList = {},
+                onRequestRemoteFileDownload = {}
+            ),
             onStopSession = {}
         )
     }

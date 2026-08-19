@@ -2,7 +2,7 @@
 
 Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly, without requiring a central cloud service to transport data. Every device can discover, receive, and send information through the same interface, with no fixed sender or receiver role.
 
-> Current status: **Alpha 0.1.1**. This version is under active development and intended for testing.
+> Current status: **Alpha 0.1.2**. This version is under active development and intended for testing.
 
 ## Key features
 
@@ -15,6 +15,11 @@ Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly,
 | Battery sync | Displays the connected device's charge level and power source. |
 | Connectivity report | Shares the active transport, validated internet access, metered-network state, and signal strength when Android exposes it. |
 | P2P ping | Measures round-trip latency between connected Veyro devices at intervals adapted to the selected power mode. |
+| Multi-device sessions | Lets one hub keep several satellites connected while the interface selects one active control target. |
+| Contact sync | Sends only a contact explicitly selected in Android and requires local confirmation before import; photos are not included. |
+| Presentation mode | Provides previous/next slide controls, a remote blackout, and a synchronized timer. |
+| Drawing tablet | Transmits stylus identity, normalized position, pressure, tilt, and primary-button state. |
+| Shared remote folder | Exposes only a directory explicitly selected through Android's Storage Access Framework and keeps all other storage inaccessible. |
 | Notification sync | Shares authorized notifications and supports remote dismissal. |
 | Media control | Synchronizes playback state and sends media commands. |
 | Find my device | Starts and stops an audible alarm on the connected device. |
@@ -39,6 +44,8 @@ Each installation receives a persistent identity. Dynamic hub selection consider
 
 The lower-capacity device initiates the connection toward the higher-capacity device. When scores are equal, persistent identifiers determine a single direction. A deterministic delay between 100 and 300 ms prevents competing simultaneous requests.
 
+After the first connection defines the topology, a device keeps one role for that session: an advertiser acts as the hub and may accept multiple satellites, while a discoverer acts as a satellite and connects to one hub. Controls and remote state are scoped to the active device selected in the interface; periodic local reports are delivered independently to every connected endpoint.
+
 After the first PIN confirmation, Trust Hub recognizes the device. If connectivity is lost, the foreground service remains available and attempts to reconnect. When enabled, the ecosystem can also resume after an Android restart or an app update.
 
 ## Power modes
@@ -58,6 +65,8 @@ During a file transfer, Veyro temporarily adds the Android data synchronization 
 - Trust Hub permissions are configured independently for every known device.
 - Every remote SMS request requires confirmation on the device that will send it.
 - Remote input accepts only commands defined by the Veyro protocol.
+- Contacts are never imported without a local confirmation and are transferred without photos.
+- Remote file requests are validated against the persisted SAF tree selected by the folder owner.
 - The accessibility service does not transmit screen contents.
 - Communication travels directly between devices through Nearby Connections.
 
@@ -73,6 +82,8 @@ Permissions are requested only for the features that require them:
 | Notification access | Synchronize authorized notifications and media state. |
 | Notification policy access | Allow the find-device alarm to work correctly. |
 | Phone, contacts, and SMS | Synchronize calls and process user-confirmed SMS requests. |
+| Write contacts | Import a received contact only after the user taps the local confirmation button. |
+| Storage Access Framework folder grant | Share read access only to the directory selected by the user; no broad storage permission is requested. |
 | Camera | Control the flashlight when the user requests that command. |
 | Accessibility | Perform user-authorized remote input. |
 
@@ -120,7 +131,7 @@ The project includes:
 
 ```text
 app/src/main/java/com/veyro/p2p/
-├── features/       Battery, connectivity, media, notifications, telephony, and remote control
+├── features/       Battery, connectivity, contacts, media, remote files, telephony, and remote control
 ├── nearby/         Device discovery, connection, hub selection, and P2P transfer
 ├── permissions/    Android runtime permissions
 ├── protocol/       Messages exchanged between devices
@@ -138,7 +149,7 @@ Veyro is an independent project with its own interface, architecture, and roadma
 
 ## Current release
 
-The current test build is [Veyro Alpha 0.1.1](https://github.com/Laginh0/Veyro/releases/tag/v0.1.1-alpha).
+The current test build is [Veyro Alpha 0.1.2](https://github.com/Laginh0/Veyro/releases/tag/v0.1.2-alpha).
 
 Alpha APKs use a development signing key. Confirm that an existing installation uses the same key before attempting an update.
 

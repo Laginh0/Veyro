@@ -98,7 +98,11 @@ class EcosystemPreferencesInstrumentedTest {
             findDevice = true,
             safeCommands = false,
             sharedLinks = true,
-            remoteInput = false
+            remoteInput = false,
+            contactSync = true,
+            presentationMode = false,
+            drawingTablet = true,
+            remoteFiles = false
         )
         try {
             preferences.setFeatureSettings(changedSettings)

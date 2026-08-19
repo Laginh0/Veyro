@@ -10,7 +10,7 @@ class FeatureSettingsTest {
     fun defaultsEnableAllAvailableFeatures() {
         val settings = FeatureSettings()
 
-        assertEquals(11, settings.enabledCount)
+        assertEquals(15, settings.enabledCount)
         assertTrue(settings.requiresSpecialAccess)
     }
 
@@ -27,7 +27,11 @@ class FeatureSettingsTest {
             findDevice = false,
             safeCommands = false,
             sharedLinks = true,
-            remoteInput = false
+            remoteInput = false,
+            contactSync = false,
+            presentationMode = false,
+            drawingTablet = false,
+            remoteFiles = false
         )
 
         assertEquals(2, settings.enabledCount)

@@ -26,6 +26,8 @@ import com.veyro.p2p.nearby.RawFileStatus
 import com.veyro.p2p.protocol.FindDeviceTrigger
 import com.veyro.p2p.protocol.MediaEventCategory
 import com.veyro.p2p.protocol.RemoteInputCommand
+import com.veyro.p2p.protocol.PresentationAction
+import com.veyro.p2p.protocol.StylusAction
 import com.veyro.p2p.settings.EnergyMode
 import com.veyro.p2p.settings.AppLanguage
 import com.veyro.p2p.settings.FeatureSettings
@@ -162,6 +164,68 @@ class P2PTransferService : Service() {
         keyboardText: String
     ) {
         controller.sendRemoteInput(command, deltaX, deltaY, keyboardText)
+    }
+
+    fun selectConnectedEndpoint(endpointId: String) {
+        controller.selectConnectedEndpoint(endpointId)
+    }
+
+    fun shareContact(uri: Uri) {
+        controller.shareContact(uri)
+    }
+
+    fun approveContactImport(requestId: String) {
+        controller.approveContactImport(requestId)
+    }
+
+    fun rejectContactImport(requestId: String) {
+        controller.rejectContactImport(requestId)
+    }
+
+    fun sendPresentationAction(action: PresentationAction, elapsedMillis: Long) {
+        controller.sendPresentationAction(action, elapsedMillis)
+    }
+
+    fun dismissRemoteBlackout() {
+        controller.dismissRemoteBlackout()
+    }
+
+    fun setSharedFolder(uri: Uri) {
+        controller.setSharedFolder(uri)
+    }
+
+    fun clearSharedFolder() {
+        controller.clearSharedFolder()
+    }
+
+    fun requestRemoteFileList(parentDocumentId: String) {
+        controller.requestRemoteFileList(parentDocumentId)
+    }
+
+    fun requestRemoteFileDownload(documentId: String) {
+        controller.requestRemoteFileDownload(documentId)
+    }
+
+    fun sendStylusEvent(
+        action: StylusAction,
+        normalizedX: Float,
+        normalizedY: Float,
+        pressure: Float,
+        tiltX: Float,
+        tiltY: Float,
+        primaryButtonPressed: Boolean,
+        isStylus: Boolean
+    ) {
+        controller.sendStylusEvent(
+            action,
+            normalizedX,
+            normalizedY,
+            pressure,
+            tiltX,
+            tiltY,
+            primaryButtonPressed,
+            isStylus
+        )
     }
 
     fun stopSession() {

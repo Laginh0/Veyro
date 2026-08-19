@@ -92,6 +92,14 @@ object VeyroI18n {
         "Controle volume e lanterna com comandos nativos." to "Control volume and flashlight with native commands.",
         "Mouse e teclado remotos" to "Remote mouse and keyboard",
         "Use este aparelho como touchpad e teclado." to "Use this device as a touchpad and keyboard.",
+        "Pasta remota compartilhada" to "Shared remote folder",
+        "Exponha somente uma pasta escolhida pelo seletor seguro do Android." to "Expose only a folder chosen with Android's secure picker.",
+        "Sincronização de contatos" to "Contact sync",
+        "Ofereça contatos selecionados e confirme cada importação." to "Offer selected contacts and confirm every import.",
+        "Modo de apresentação" to "Presentation mode",
+        "Controle slides, tela preta e cronômetro." to "Control slides, blackout, and timer.",
+        "Mesa digitalizadora" to "Drawing tablet",
+        "Transmita stylus, pressão, inclinação e botão principal." to "Transmit stylus, pressure, tilt, and primary button.",
         "Idioma" to "Language",
         "Escolha o idioma da interface do Veyro." to "Choose the Veyro interface language.",
         "Português" to "Portuguese",
@@ -252,6 +260,43 @@ object VeyroI18n {
         "SMS recebido no outro aparelho." to "SMS received on the other device.",
         "Ative o serviço de acessibilidade do Veyro para receber controles." to "Enable the Veyro accessibility service to receive controls.",
         "Controle remoto indisponível neste aparelho." to "Remote control unavailable on this device.",
+        "Escolha o destino dos controles e dados exibidos abaixo." to "Choose the target for the controls and data shown below.",
+        "Selecione um contato no Android. Fotos não são enviadas e toda importação exige confirmação local." to "Select a contact in Android. Photos are not sent, and every import requires local confirmation.",
+        "Selecionar e oferecer contato" to "Select and offer contact",
+        "Contato sem nome" to "Unnamed contact",
+        "Importar" to "Import",
+        "Cronômetro parado" to "Timer stopped",
+        "Anterior" to "Previous",
+        "Próximo" to "Next",
+        "Parar" to "Stop",
+        "Iniciar" to "Start",
+        "Restaurar tela" to "Restore screen",
+        "Tela preta" to "Blackout",
+        "A área transmite posição, pressão, inclinação e o botão principal do stylus." to "The pad transmits position, pressure, tilt, and the stylus primary button.",
+        "Toque ou use uma caneta" to "Touch or use a stylus",
+        "Acesso remoto a arquivos" to "Remote file access",
+        "Nenhuma pasta local exposta. O restante do armazenamento permanece inacessível." to "No local folder is exposed. The rest of storage remains inaccessible.",
+        "Escolher pasta" to "Choose folder",
+        "Parar acesso" to "Stop access",
+        "Abrir pasta remota" to "Open remote folder",
+        "Voltar" to "Back",
+        "Pasta" to "Folder",
+        "Arquivo" to "File",
+        "Contato recebido; confirme antes de importar." to "Contact received; confirm before importing.",
+        "Importação recusada neste aparelho." to "Import declined on this device.",
+        "Contato oferecido; aguardando confirmação no outro aparelho." to "Contact offered; waiting for confirmation on the other device.",
+        "Comando de apresentação enviado." to "Presentation command sent.",
+        "Compartilhamento da pasta encerrado." to "Folder sharing stopped.",
+        "Solicitação segura de pasta enviada." to "Secure folder request sent.",
+        "Solicitação de arquivo enviada." to "File request sent.",
+        "Tela preta solicitada pela apresentação remota." to "Blackout requested by the remote presentation.",
+        "Tela preta ativa • toque para sair" to "Blackout active • tap to exit",
+        "Tela preta encerrada localmente." to "Blackout ended locally.",
+        "Apresentação remota em andamento." to "Remote presentation in progress.",
+        "Apresentação remota encerrada." to "Remote presentation stopped.",
+        "Conteúdo da pasta compartilhada enviado." to "Shared folder contents sent.",
+        "Arquivo indisponível ou fora da pasta compartilhada." to "File unavailable or outside the shared folder.",
+        "Solicitação de arquivo recusada com segurança." to "File request safely declined.",
         "Não foi possível salvar o arquivo recebido." to "The incoming file could not be saved.",
         "Erro inesperado na conexão Nearby." to "Unexpected Nearby connection error.",
         "Conectando ao serviço de transferência..." to "Connecting to the transfer service...",
@@ -311,6 +356,14 @@ object VeyroI18n {
         text.startsWith("Compare este código com ") ->
             "Compare this code with " + text.removePrefix("Compare este código com ")
         text.startsWith("Conectado a ") -> "Connected to " + text.removePrefix("Conectado a ")
+        text.startsWith("Aparelhos conectados (") -> "Connected devices " + text.removePrefix("Aparelhos conectados ")
+        text.startsWith("Enviado por ") -> "Sent by " + text.removePrefix("Enviado por ")
+        text.startsWith("Cronômetro: ") -> "Timer: " + text.removePrefix("Cronômetro: ")
+        text.startsWith("Remoto: ") -> "Remote: " + text.removePrefix("Remoto: ")
+            .replace(" • tela preta", " • blackout")
+        text.startsWith("Stylus • pressão ") -> "Stylus • pressure " + text.removePrefix("Stylus • pressão ")
+        text.startsWith("Pasta local compartilhada: ") ->
+            "Shared local folder: " + text.removePrefix("Pasta local compartilhada: ")
         text.startsWith("Enviando ") -> "Sending " + text.removePrefix("Enviando ")
         text.startsWith("Falha ao transferir ") ->
             "Failed to transfer " + text.removePrefix("Falha ao transferir ")
@@ -330,6 +383,12 @@ object VeyroI18n {
             text.removeSuffix(" aparelho(s) encontrado(s).") + " device(s) found."
         text.endsWith(" aparelho(s) no ecossistema próximo.") ->
             text.removeSuffix(" aparelho(s) no ecossistema próximo.") + " device(s) in the nearby ecosystem."
+        text.endsWith(" aparelho(s) conectado(s).") ->
+            text.removeSuffix(" aparelho(s) conectado(s).") + " device(s) connected."
+        text.endsWith(" aparelho(s) ainda conectado(s).") ->
+            text.removeSuffix(" aparelho(s) ainda conectado(s).") + " device(s) still connected."
+        text.endsWith(" item(ns) na pasta compartilhada.") ->
+            text.removeSuffix(" item(ns) na pasta compartilhada.") + " item(s) in the shared folder."
         text.startsWith("Bateria remota: ") -> "Remote battery: " + text.removePrefix("Bateria remota: ")
         text.startsWith("Conectividade remota: ") ->
             "Remote connectivity: " + text.removePrefix("Conectividade remota: ")

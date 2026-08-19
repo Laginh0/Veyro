@@ -45,7 +45,11 @@ data class FeatureSettings(
     val findDevice: Boolean = true,
     val safeCommands: Boolean = true,
     val sharedLinks: Boolean = true,
-    val remoteInput: Boolean = true
+    val remoteInput: Boolean = true,
+    val contactSync: Boolean = true,
+    val presentationMode: Boolean = true,
+    val drawingTablet: Boolean = true,
+    val remoteFiles: Boolean = true
 ) {
     val enabledCount: Int
         get() = listOf(
@@ -59,12 +63,16 @@ data class FeatureSettings(
             findDevice,
             safeCommands,
             sharedLinks,
-            remoteInput
+            remoteInput,
+            contactSync,
+            presentationMode,
+            drawingTablet,
+            remoteFiles
         ).count { it }
 
     val requiresSpecialAccess: Boolean
         get() = notificationSync || mediaControl || telephonySync || findDevice ||
-            safeCommands || remoteInput
+            safeCommands || remoteInput || contactSync
 }
 
 class EcosystemPreferences(context: Context) {
@@ -117,7 +125,11 @@ class EcosystemPreferences(context: Context) {
         findDevice = preferences.getBoolean(KEY_FEATURE_FIND_DEVICE, true),
         safeCommands = preferences.getBoolean(KEY_FEATURE_SAFE_COMMANDS, true),
         sharedLinks = preferences.getBoolean(KEY_FEATURE_SHARED_LINKS, true),
-        remoteInput = preferences.getBoolean(KEY_FEATURE_REMOTE_INPUT, true)
+        remoteInput = preferences.getBoolean(KEY_FEATURE_REMOTE_INPUT, true),
+        contactSync = preferences.getBoolean(KEY_FEATURE_CONTACTS, true),
+        presentationMode = preferences.getBoolean(KEY_FEATURE_PRESENTATION, true),
+        drawingTablet = preferences.getBoolean(KEY_FEATURE_DRAWING_TABLET, true),
+        remoteFiles = preferences.getBoolean(KEY_FEATURE_REMOTE_FILES, true)
     )
 
     fun setFeatureSettings(settings: FeatureSettings) {
@@ -133,6 +145,10 @@ class EcosystemPreferences(context: Context) {
             .putBoolean(KEY_FEATURE_SAFE_COMMANDS, settings.safeCommands)
             .putBoolean(KEY_FEATURE_SHARED_LINKS, settings.sharedLinks)
             .putBoolean(KEY_FEATURE_REMOTE_INPUT, settings.remoteInput)
+            .putBoolean(KEY_FEATURE_CONTACTS, settings.contactSync)
+            .putBoolean(KEY_FEATURE_PRESENTATION, settings.presentationMode)
+            .putBoolean(KEY_FEATURE_DRAWING_TABLET, settings.drawingTablet)
+            .putBoolean(KEY_FEATURE_REMOTE_FILES, settings.remoteFiles)
             .apply()
     }
 
@@ -224,6 +240,10 @@ class EcosystemPreferences(context: Context) {
         const val KEY_FEATURE_SAFE_COMMANDS = "feature_safe_commands"
         const val KEY_FEATURE_SHARED_LINKS = "feature_shared_links"
         const val KEY_FEATURE_REMOTE_INPUT = "feature_remote_input"
+        const val KEY_FEATURE_CONTACTS = "feature_contacts"
+        const val KEY_FEATURE_PRESENTATION = "feature_presentation"
+        const val KEY_FEATURE_DRAWING_TABLET = "feature_drawing_tablet"
+        const val KEY_FEATURE_REMOTE_FILES = "feature_remote_files"
         const val KEY_TRUSTED_DEVICE_NAMES = "trusted_device_names"
         const val SUFFIX_NAME = "name"
         const val SUFFIX_AUTO_FILES = "auto_files"
