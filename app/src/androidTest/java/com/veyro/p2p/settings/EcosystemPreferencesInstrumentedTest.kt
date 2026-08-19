@@ -65,4 +65,20 @@ class EcosystemPreferencesInstrumentedTest {
             preferences.setEcosystemEnabled(originalValue)
         }
     }
+
+    @Test
+    fun appLanguagePersists() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val preferences = EcosystemPreferences(context)
+        val originalLanguage = preferences.appLanguage()
+        try {
+            preferences.setAppLanguage(AppLanguage.ENGLISH)
+            assertEquals(AppLanguage.ENGLISH, EcosystemPreferences(context).appLanguage())
+
+            preferences.setAppLanguage(AppLanguage.PORTUGUESE)
+            assertEquals(AppLanguage.PORTUGUESE, EcosystemPreferences(context).appLanguage())
+        } finally {
+            preferences.setAppLanguage(originalLanguage)
+        }
+    }
 }

@@ -63,6 +63,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
@@ -73,9 +74,10 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
+import androidx.compose.material3.Text as MaterialText
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -83,6 +85,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,6 +97,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -124,7 +128,9 @@ import com.veyro.p2p.protocol.MediaEventCategory
 import com.veyro.p2p.protocol.TelecommunicationType
 import com.veyro.p2p.protocol.RemoteInputCommand
 import com.veyro.p2p.settings.EnergyMode
+import com.veyro.p2p.settings.AppLanguage
 import com.veyro.p2p.settings.TrustedDeviceRules
+import com.veyro.p2p.ui.i18n.VeyroI18n
 import com.veyro.p2p.ui.theme.VeyroTheme
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -230,6 +236,7 @@ class MainActivity : ComponentActivity() {
                 onUpdateTrustedDeviceRules = nearbyViewModel::updateTrustedDeviceRules,
                 onRemoveTrustedDevice = nearbyViewModel::removeTrustedDevice,
                 onSetEnergyMode = nearbyViewModel::setEnergyMode,
+                onSetAppLanguage = nearbyViewModel::setAppLanguage,
                 onStopSession = nearbyViewModel::stopSession
             )
         }
@@ -327,12 +334,14 @@ private fun VeyroApp(
     onUpdateTrustedDeviceRules: (TrustedDeviceRules) -> Unit,
     onRemoveTrustedDevice: (String) -> Unit,
     onSetEnergyMode: (EnergyMode) -> Unit,
+    onSetAppLanguage: (AppLanguage) -> Unit,
     onStopSession: () -> Unit
 ) {
     var showPermissionExplanation by remember { mutableStateOf(!permissionsGranted) }
 
-    VeyroTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalVeyroLanguage provides nearbyUiState.appLanguage) {
+        VeyroTheme {
+            Surface(modifier = Modifier.fillMaxSize()) {
             VeyroScreen(
                 permissionsGranted = permissionsGranted,
                 nearbyUiState = nearbyUiState,
@@ -367,6 +376,7 @@ private fun VeyroApp(
                 onUpdateTrustedDeviceRules = onUpdateTrustedDeviceRules,
                 onRemoveTrustedDevice = onRemoveTrustedDevice,
                 onSetEnergyMode = onSetEnergyMode,
+                onSetAppLanguage = onSetAppLanguage,
                 onStopSession = onStopSession
             )
 
@@ -389,6 +399,7 @@ private fun VeyroApp(
                         onReject = onRejectConnection
                     )
                 }
+            }
         }
     }
 }
@@ -428,6 +439,7 @@ private fun VeyroScreen(
     onUpdateTrustedDeviceRules: (TrustedDeviceRules) -> Unit,
     onRemoveTrustedDevice: (String) -> Unit,
     onSetEnergyMode: (EnergyMode) -> Unit,
+    onSetAppLanguage: (AppLanguage) -> Unit,
     onStopSession: () -> Unit
 ) {
     if (!permissionsGranted) {
@@ -484,6 +496,7 @@ private fun VeyroScreen(
                     onUpdateTrustedDeviceRules = onUpdateTrustedDeviceRules,
                     onRemoveTrustedDevice = onRemoveTrustedDevice,
                     onSetEnergyMode = onSetEnergyMode,
+                    onSetAppLanguage = onSetAppLanguage,
                     onStopSession = onStopSession
                 )
             }
@@ -530,6 +543,7 @@ private fun VeyroScreen(
                     onUpdateTrustedDeviceRules = onUpdateTrustedDeviceRules,
                     onRemoveTrustedDevice = onRemoveTrustedDevice,
                     onSetEnergyMode = onSetEnergyMode,
+                    onSetAppLanguage = onSetAppLanguage,
                     onStopSession = onStopSession
                 )
             }
@@ -687,6 +701,7 @@ private fun VeyroDestinationContent(
     onUpdateTrustedDeviceRules: (TrustedDeviceRules) -> Unit,
     onRemoveTrustedDevice: (String) -> Unit,
     onSetEnergyMode: (EnergyMode) -> Unit,
+    onSetAppLanguage: (AppLanguage) -> Unit,
     onStopSession: () -> Unit
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
@@ -739,7 +754,8 @@ private fun VeyroDestinationContent(
                 onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
                 onUpdateTrustedDeviceRules = onUpdateTrustedDeviceRules,
                 onRemoveTrustedDevice = onRemoveTrustedDevice,
-                onSetEnergyMode = onSetEnergyMode
+                onSetEnergyMode = onSetEnergyMode,
+                onSetAppLanguage = onSetAppLanguage
             )
         }
     }
@@ -874,7 +890,8 @@ private fun SettingsPage(
     onOpenNotificationPolicySettings: () -> Unit,
     onUpdateTrustedDeviceRules: (TrustedDeviceRules) -> Unit,
     onRemoveTrustedDevice: (String) -> Unit,
-    onSetEnergyMode: (EnergyMode) -> Unit
+    onSetEnergyMode: (EnergyMode) -> Unit,
+    onSetAppLanguage: (AppLanguage) -> Unit
 ) {
     VeyroPage {
         PageHeader(
@@ -885,6 +902,11 @@ private fun SettingsPage(
         EnergyModePanel(
             selectedMode = uiState.energyMode,
             onSelectMode = onSetEnergyMode
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        LanguagePanel(
+            selectedLanguage = uiState.appLanguage,
+            onSelectLanguage = onSetAppLanguage
         )
         Spacer(modifier = Modifier.height(16.dp))
         TrustHubPanel(
@@ -921,6 +943,48 @@ private fun SettingsPage(
                 SettingsPrinciple("Confirmada", "Um PIN igual nos dois aparelhos valida cada conexão.")
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 SettingsPrinciple("Temporária", "Encerrar a sessão interrompe o canal e as sincronizações.")
+            }
+        }
+    }
+}
+
+@Composable
+private fun LanguagePanel(
+    selectedLanguage: AppLanguage,
+    onSelectLanguage: (AppLanguage) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text("Idioma", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Escolha o idioma da interface do Veyro.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            AppLanguage.entries.forEach { language ->
+                val title = when (language) {
+                    AppLanguage.PORTUGUESE -> "Português"
+                    AppLanguage.ENGLISH -> "Inglês"
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { onSelectLanguage(language) }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedLanguage == language,
+                        onClick = { onSelectLanguage(language) }
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(title, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
@@ -982,6 +1046,35 @@ private fun EnergyModePanel(
             }
         }
     }
+}
+
+private val LocalVeyroLanguage = staticCompositionLocalOf { AppLanguage.PORTUGUESE }
+
+@Composable
+private fun Text(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontWeight: FontWeight? = null,
+    textAlign: TextAlign? = null,
+    overflow: TextOverflow = TextOverflow.Clip,
+    softWrap: Boolean = true,
+    maxLines: Int = Int.MAX_VALUE,
+    minLines: Int = 1,
+    style: TextStyle = LocalTextStyle.current
+) {
+    MaterialText(
+        text = VeyroI18n.translate(text, LocalVeyroLanguage.current),
+        modifier = modifier,
+        color = color,
+        fontWeight = fontWeight,
+        textAlign = textAlign,
+        overflow = overflow,
+        softWrap = softWrap,
+        maxLines = maxLines,
+        minLines = minLines,
+        style = style
+    )
 }
 
 @Composable
@@ -1596,7 +1689,7 @@ private fun FeatureAccessCard(
                 text = if (callScreeningRoleGranted) {
                     "O Veyro pode sincronizar nome e número. Eventos só são compartilhados durante uma conexão; todo SMS remoto exige confirmação local."
                 } else {
-                    "Mantenha Silence ou outro identificador ativo se preferir. Nesse modo, o Veyro sincroniza o estado da chamada sem nome/número. Todo SMS remoto exige confirmação local."
+                    "Sem o acesso de identificação de chamadas, o Veyro sincroniza apenas o estado da chamada, sem nome ou número. Todo SMS remoto exige confirmação local."
                 },
                 style = MaterialTheme.typography.labelSmall
             )
@@ -2747,6 +2840,7 @@ private fun VeyroScreenPreview() {
             onUpdateTrustedDeviceRules = {},
             onRemoveTrustedDevice = {},
             onSetEnergyMode = {},
+            onSetAppLanguage = {},
             onStopSession = {}
         )
     }

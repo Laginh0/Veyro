@@ -1,0 +1,35 @@
+package com.veyro.p2p.ui.i18n
+
+import com.veyro.p2p.settings.AppLanguage
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class VeyroI18nTest {
+    @Test
+    fun portugueseLeavesTextUnchanged() {
+        assertEquals(
+            "Ativar ecossistema contínuo",
+            VeyroI18n.translate("Ativar ecossistema contínuo", AppLanguage.PORTUGUESE)
+        )
+    }
+
+    @Test
+    fun englishTranslatesStaticInterfaceText() {
+        assertEquals(
+            "Enable continuous ecosystem",
+            VeyroI18n.translate("Ativar ecossistema contínuo", AppLanguage.ENGLISH)
+        )
+        assertEquals(
+            "Nearby client initialized.",
+            VeyroI18n.translate("Cliente Nearby inicializado.", AppLanguage.ENGLISH)
+        )
+    }
+
+    @Test
+    fun englishTranslatesDynamicStatusWithoutChangingDeviceName() {
+        assertEquals(
+            "Connected to Pixel 9",
+            VeyroI18n.translate("Conectado a Pixel 9", AppLanguage.ENGLISH)
+        )
+    }
+}

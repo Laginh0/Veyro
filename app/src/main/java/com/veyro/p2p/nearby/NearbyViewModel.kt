@@ -45,6 +45,7 @@ import com.veyro.p2p.protocol.VeyroMessage
 import com.veyro.p2p.service.P2PTransferService
 import com.veyro.p2p.settings.EcosystemPreferences
 import com.veyro.p2p.settings.EnergyMode
+import com.veyro.p2p.settings.AppLanguage
 import com.veyro.p2p.settings.TrustedDeviceRules
 import com.veyro.p2p.storage.ReceivedFileStorage
 import kotlinx.coroutines.CoroutineScope
@@ -192,6 +193,7 @@ data class NearbyClientUiState(
     val rawFileTransfers: List<RawFileTransfer> = emptyList(),
     val trustedDevices: List<TrustedDeviceRules> = emptyList(),
     val energyMode: EnergyMode = EnergyMode.BALANCED,
+    val appLanguage: AppLanguage = AppLanguage.PORTUGUESE,
     val ecosystemEnabled: Boolean = false,
     val statusMessage: String? = null,
     val errorMessage: String? = null
@@ -244,6 +246,7 @@ internal class NearbySessionController(
                     status = NearbyClientStatus.READY,
                     trustedDevices = ecosystemPreferences.trustedDevices(),
                     energyMode = ecosystemPreferences.energyMode(),
+                    appLanguage = ecosystemPreferences.appLanguage(),
                     ecosystemEnabled = ecosystemPreferences.ecosystemEnabled(),
                     statusMessage = "Cliente Nearby inicializado."
                 )
@@ -254,6 +257,7 @@ internal class NearbySessionController(
                     connectionStage = ConnectionStage.ERROR,
                     trustedDevices = ecosystemPreferences.trustedDevices(),
                     energyMode = ecosystemPreferences.energyMode(),
+                    appLanguage = ecosystemPreferences.appLanguage(),
                     ecosystemEnabled = ecosystemPreferences.ecosystemEnabled(),
                     errorMessage = error.message ?: "Não foi possível inicializar o Nearby."
                 )
@@ -465,6 +469,21 @@ internal class NearbySessionController(
             )
         }
         applyRadioPolicy()
+    }
+
+    fun setAppLanguage(language: AppLanguage) {
+        ecosystemPreferences.setAppLanguage(language)
+        _uiState.update {
+            it.copy(
+                appLanguage = language,
+                statusMessage = if (language == AppLanguage.ENGLISH) {
+                    "Language changed to English."
+                } else {
+                    "Idioma alterado para Português."
+                },
+                errorMessage = null
+            )
+        }
     }
 
     fun onScreenStateChanged(interactive: Boolean) {
@@ -1954,6 +1973,10 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setEnergyMode(mode: EnergyMode) {
         withService { it.setEnergyMode(mode) }
+    }
+
+    fun setAppLanguage(language: AppLanguage) {
+        withService { it.setAppLanguage(language) }
     }
 
     fun approveIncomingFile(payloadId: Long) {

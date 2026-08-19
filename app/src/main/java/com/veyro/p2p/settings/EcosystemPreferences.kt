@@ -17,6 +17,17 @@ enum class EnergyMode {
     }
 }
 
+enum class AppLanguage {
+    PORTUGUESE,
+    ENGLISH;
+
+    companion object {
+        fun fromStored(value: String?): AppLanguage = entries.firstOrNull {
+            it.name == value
+        } ?: PORTUGUESE
+    }
+}
+
 data class TrustedDeviceRules(
     val deviceName: String,
     val autoAcceptFiles: Boolean = false,
@@ -52,6 +63,14 @@ class EcosystemPreferences(context: Context) {
 
     fun setEnergyMode(mode: EnergyMode) {
         preferences.edit().putString(KEY_ENERGY_MODE, mode.name).apply()
+    }
+
+    fun appLanguage(): AppLanguage = AppLanguage.fromStored(
+        preferences.getString(KEY_APP_LANGUAGE, null)
+    )
+
+    fun setAppLanguage(language: AppLanguage) {
+        preferences.edit().putString(KEY_APP_LANGUAGE, language.name).apply()
     }
 
     @Synchronized
@@ -130,6 +149,7 @@ class EcosystemPreferences(context: Context) {
         const val KEY_LOCAL_DEVICE_ID = "local_device_id"
         const val KEY_ECOSYSTEM_ENABLED = "ecosystem_enabled"
         const val KEY_ENERGY_MODE = "energy_mode"
+        const val KEY_APP_LANGUAGE = "app_language"
         const val KEY_TRUSTED_DEVICE_NAMES = "trusted_device_names"
         const val SUFFIX_NAME = "name"
         const val SUFFIX_AUTO_FILES = "auto_files"

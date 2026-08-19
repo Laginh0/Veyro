@@ -27,7 +27,10 @@ import com.veyro.p2p.protocol.FindDeviceTrigger
 import com.veyro.p2p.protocol.MediaEventCategory
 import com.veyro.p2p.protocol.RemoteInputCommand
 import com.veyro.p2p.settings.EnergyMode
+import com.veyro.p2p.settings.AppLanguage
 import com.veyro.p2p.settings.TrustedDeviceRules
+import com.veyro.p2p.settings.EcosystemPreferences
+import com.veyro.p2p.ui.i18n.VeyroI18n
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -183,6 +186,11 @@ class P2PTransferService : Service() {
         applyWakeLockPolicy(controller.uiState.value)
     }
 
+    fun setAppLanguage(language: AppLanguage) {
+        controller.setAppLanguage(language)
+        createNotificationChannel()
+    }
+
     fun approveIncomingFile(payloadId: Long) {
         controller.approveIncomingFile(payloadId)
     }
@@ -268,8 +276,13 @@ class P2PTransferService : Service() {
 
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_veyro_transfer)
-            .setContentTitle(title)
-            .setContentText(state.statusMessage ?: "Transferência P2P ativa.")
+            .setContentTitle(VeyroI18n.translate(title, state.appLanguage))
+            .setContentText(
+                VeyroI18n.translate(
+                    state.statusMessage ?: "Transferência P2P ativa.",
+                    state.appLanguage
+                )
+            )
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -277,7 +290,7 @@ class P2PTransferService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
-                "Encerrar",
+                VeyroI18n.translate("Encerrar", state.appLanguage),
                 stopIntent
             )
             .apply {
@@ -298,12 +311,16 @@ class P2PTransferService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
+        val language = EcosystemPreferences(this).appLanguage()
         val channel = NotificationChannel(
             NOTIFICATION_CHANNEL_ID,
-            "Transferências Veyro",
+            VeyroI18n.translate("Transferências Veyro", language),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Mostra conexões e transferências P2P em andamento."
+            description = VeyroI18n.translate(
+                "Mostra conexões e transferências P2P em andamento.",
+                language
+            )
             setShowBadge(false)
         }
         notificationManager.createNotificationChannel(channel)
