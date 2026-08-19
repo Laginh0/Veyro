@@ -295,7 +295,7 @@ internal class NearbySessionController(
                 connectedEndpointId = null,
                 connectedEndpointName = null,
                 ecosystemEnabled = true,
-                statusMessage = "Ativando anúncio e descoberta simultâneos...",
+                statusMessage = "Ativando visibilidade e detecção simultâneas...",
                 errorMessage = null
             )
         }
