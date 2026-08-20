@@ -18,6 +18,7 @@ import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.tasks.Task
 import com.veyro.p2p.features.battery.BatteryStatusMonitor
 import com.veyro.p2p.features.commands.SafeCustomCommandExecutor
+import com.veyro.p2p.features.clipboard.ClipboardSyncManager
 import com.veyro.p2p.features.connectivity.ConnectivityStatusMonitor
 import com.veyro.p2p.features.contacts.ContactSyncManager
 import com.veyro.p2p.features.finddevice.FindMyDeviceAlarmController
@@ -32,6 +33,7 @@ import com.veyro.p2p.features.telephony.TelephonySyncBridge
 import com.veyro.p2p.protocol.BatteryStatus
 import com.veyro.p2p.protocol.CustomCommandEvent
 import com.veyro.p2p.protocol.ConnectivityStatus
+import com.veyro.p2p.protocol.ClipboardSyncEvent
 import com.veyro.p2p.protocol.ContactRecord
 import com.veyro.p2p.protocol.ContactSyncAction
 import com.veyro.p2p.protocol.ContactSyncEvent
@@ -267,6 +269,7 @@ data class NearbyClientUiState(
     val remoteFileMessage: String? = null,
     val sharedFolderName: String? = null,
     val remotePresentationState: RemotePresentationState = RemotePresentationState(),
+    val clipboardStatus: String? = null,
     val receivedCommands: List<ReceivedCommand> = emptyList(),
     val rawFileTransfers: List<RawFileTransfer> = emptyList(),
     val trustedDevices: List<TrustedDeviceRules> = emptyList(),
@@ -301,6 +304,9 @@ internal class NearbySessionController(
     private val connectivityStatusMonitor = ConnectivityStatusMonitor(application)
     private val contactSyncManager = ContactSyncManager(application)
     private val sharedFolderManager = SharedFolderManager(application)
+    private val clipboardSyncManager = ClipboardSyncManager(application) {
+        syncLocalClipboard(manual = false)
+    }
     private val findMyDeviceAlarm = FindMyDeviceAlarmController(application)
     private val mediaSessionCoordinator = MediaSessionCoordinator(application)
     private val telephonyCallStateMonitor = TelephonyCallStateMonitor(application)
@@ -317,6 +323,8 @@ internal class NearbySessionController(
     private var radioDutyCycleJob: Job? = null
     private var reconnectJob: Job? = null
     private var screenInteractive: Boolean = true
+    private val seenClipboardEventIds = LinkedHashSet<String>()
+    private var lastClipboardFingerprint: String? = null
 
     private val clientResult by lazy {
         runCatching { NearbyConnectionsClient(application, this) }
@@ -510,6 +518,8 @@ internal class NearbySessionController(
         completedFilePayloadIds.clear()
         approvedFilePayloadIds.clear()
         endpointIdentities.clear()
+        seenClipboardEventIds.clear()
+        lastClipboardFingerprint = null
         _uiState.update {
             it.copy(
                 role = ConnectionRole.NONE,
@@ -533,6 +543,7 @@ internal class NearbySessionController(
                 remoteFileParentId = "",
                 remoteFileMessage = null,
                 remotePresentationState = RemotePresentationState(),
+                clipboardStatus = null,
                 receivedCommands = emptyList(),
                 rawFileTransfers = emptyList(),
                 ecosystemEnabled = false,
@@ -624,6 +635,7 @@ internal class NearbySessionController(
                 remotePresentationState = state.remotePresentationState.takeIf {
                     settings.presentationMode
                 } ?: RemotePresentationState(),
+                clipboardStatus = state.clipboardStatus.takeIf { settings.clipboardSync },
                 receivedCommands = state.receivedCommands.takeIf { settings.safeCommands }.orEmpty(),
                 statusMessage = "Preferências de recursos atualizadas.",
                 errorMessage = null
@@ -643,6 +655,47 @@ internal class NearbySessionController(
             if (settings.telephonySync) startTelephonySync() else stopTelephonySync()
         }
         if (!settings.findDevice) findMyDeviceAlarm.stop()
+    }
+
+    fun syncLocalClipboard(manual: Boolean = true) {
+        val state = _uiState.value
+        if (!state.featureSettings.clipboardSync) return
+        if (state.connectedEndpoints.isEmpty()) {
+            if (manual) updateClipboardStatus(
+                "Conecte um aparelho antes de sincronizar o clipboard.",
+                isError = true
+            )
+            return
+        }
+        val text = clipboardSyncManager.readPlainText()
+        if (text == null) {
+            if (manual) updateClipboardStatus(
+                "O clipboard não contém texto acessível.",
+                isError = true
+            )
+            return
+        }
+        if (!ClipboardSyncManager.isSafeText(text)) {
+            updateClipboardStatus("O texto excede o limite seguro de 20 KB.", isError = true)
+            return
+        }
+        val fingerprint = ClipboardSyncManager.fingerprint(text)
+        if (!manual && fingerprint == lastClipboardFingerprint) return
+
+        val event = ClipboardSyncEvent.newBuilder()
+            .setEventId(UUID.randomUUID().toString())
+            .setSourceDeviceId(localIdentity.deviceId)
+            .setText(text)
+            .setEventTimestamp(System.currentTimeMillis())
+            .build()
+        rememberClipboardEvent(event.eventId)
+        lastClipboardFingerprint = fingerprint
+        broadcastFeaturePayload(VeyroProtocolCodec.encodeClipboardSyncEvent(event))
+        updateClipboardStatus(
+            if (manual) "Clipboard enviado aos aparelhos conectados."
+            else "Novo texto do clipboard sincronizado.",
+            isError = false
+        )
     }
 
     fun onScreenStateChanged(interactive: Boolean) {
@@ -1327,6 +1380,11 @@ internal class NearbySessionController(
                 VeyroMessage.PayloadCase.REMOTE_FILE_EVENT -> if (_uiState.value.featureSettings.remoteFiles)
                     handleRemoteFileEvent(endpointId, featureMessage.remoteFileEvent)
 
+                VeyroMessage.PayloadCase.CLIPBOARD_SYNC_EVENT ->
+                    if (_uiState.value.featureSettings.clipboardSync) {
+                        handleClipboardSyncEvent(endpointId, featureMessage.clipboardSyncEvent)
+                    }
+
                 VeyroMessage.PayloadCase.PAYLOAD_NOT_SET,
                 null -> Unit
             }
@@ -1522,6 +1580,7 @@ internal class NearbySessionController(
         stopMediaSync()
         stopTelephonySync()
         findMyDeviceAlarm.stop()
+        clipboardSyncManager.close()
         runCatching { clientResult.getOrNull()?.close() }
     }
 
@@ -2102,6 +2161,61 @@ internal class NearbySessionController(
         )
     }
 
+    private fun handleClipboardSyncEvent(endpointId: String, event: ClipboardSyncEvent) {
+        if (event.eventId.isBlank() || event.sourceDeviceId.isBlank() ||
+            event.sourceDeviceId == localIdentity.deviceId ||
+            !ClipboardSyncManager.isSafeText(event.text) ||
+            !rememberClipboardEvent(event.eventId)
+        ) return
+
+        lastClipboardFingerprint = ClipboardSyncManager.fingerprint(event.text)
+        runCatching { clipboardSyncManager.writePlainText(event.text) }
+            .onFailure {
+                updateClipboardStatus(
+                    "O Android não permitiu atualizar o clipboard local.",
+                    isError = true
+                )
+                return
+            }
+
+        val sender = _uiState.value.connectedEndpoints.firstOrNull {
+            it.id == endpointId
+        }?.name?.removePrefix("Veyro - ") ?: "aparelho conectado"
+        updateClipboardStatus("Clipboard atualizado por $sender.", isError = false)
+
+        val payload = VeyroProtocolCodec.encodeClipboardSyncEvent(event)
+        val client = clientResult.getOrNull() ?: return
+        _uiState.value.connectedEndpoints
+            .filterNot { it.id == endpointId }
+            .forEach { endpoint ->
+                runCatching {
+                    client.sendBytes(endpoint.id, payload).addOnFailureListener(::showFeatureError)
+                }.onFailure(::showFeatureError)
+            }
+    }
+
+    private fun rememberClipboardEvent(eventId: String): Boolean {
+        if (!seenClipboardEventIds.add(eventId)) return false
+        while (seenClipboardEventIds.size > MAX_SEEN_CLIPBOARD_EVENTS) {
+            val iterator = seenClipboardEventIds.iterator()
+            if (iterator.hasNext()) {
+                iterator.next()
+                iterator.remove()
+            }
+        }
+        return true
+    }
+
+    private fun updateClipboardStatus(message: String, isError: Boolean) {
+        _uiState.update {
+            it.copy(
+                clipboardStatus = message,
+                statusMessage = message,
+                errorMessage = message.takeIf { isError }
+            )
+        }
+    }
+
     private fun handleRemoteInputEvent(event: RemoteInputEvent) {
         val accepted = RemoteInputBridge.dispatch(event)
         _uiState.update {
@@ -2594,6 +2708,7 @@ internal class NearbySessionController(
         const val MAX_CONTACT_VALUE_LENGTH = 320
         const val MAX_CONTACT_VALUES = 20
         const val MAX_PENDING_CONTACTS = 20
+        const val MAX_SEEN_CLIPBOARD_EVENTS = 128
         const val PING_TIMEOUT_MILLIS = 2 * 60 * 1000L
         const val PING_CONTINUOUS_INTERVAL_MILLIS = 10_000L
         const val PING_BALANCED_INTERVAL_MILLIS = 20_000L
@@ -2622,6 +2737,7 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
     private var transferService: P2PTransferService? = null
     private var stateCollectionJob: Job? = null
     private var isServiceBound = false
+    private var syncClipboardWhenServiceConnects = false
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -2632,6 +2748,10 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             transferService = service
+            if (syncClipboardWhenServiceConnects) {
+                syncClipboardWhenServiceConnects = false
+                service.syncClipboard(manual = false)
+            }
             stateCollectionJob?.cancel()
             stateCollectionJob = viewModelScope.launch {
                 service.uiState.collect { state ->
@@ -2726,6 +2846,19 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun shareUrl(url: String) {
         withService { it.shareUrl(url) }
+    }
+
+    fun syncClipboard() {
+        withService { it.syncClipboard(manual = true) }
+    }
+
+    fun syncClipboardFromForeground() {
+        val service = transferService
+        if (service == null) {
+            syncClipboardWhenServiceConnects = true
+        } else {
+            service.syncClipboard(manual = false)
+        }
     }
 
     fun sendRemoteInput(

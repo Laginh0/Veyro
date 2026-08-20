@@ -157,6 +157,10 @@ class P2PTransferService : Service() {
         controller.shareUrl(url)
     }
 
+    fun syncClipboard(manual: Boolean = true) {
+        controller.syncLocalClipboard(manual)
+    }
+
     fun sendRemoteInput(
         command: RemoteInputCommand,
         deltaX: Float,

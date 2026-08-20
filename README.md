@@ -25,6 +25,7 @@ Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly,
 | Find my device | Starts and stops an audible alarm on the connected device. |
 | Calls and SMS | Synchronizes call state and requires local confirmation before sending a remote SMS. |
 | Link sharing | Sends web addresses for user-approved opening on another device. |
+| Clipboard sync | Synchronizes plain text across connected devices when the user returns to Veyro or taps the manual sync button; rich content is never transmitted. |
 | Safe commands | Provides a restricted set of remote actions, including volume and flashlight control. |
 | Remote input | Performs gestures and text input when the user explicitly enables the accessibility service. |
 | Feature control center | Provides persistent switches that independently enable or disable every ecosystem module, including connectivity reports and P2P ping. |
@@ -67,6 +68,7 @@ During a file transfer, Veyro temporarily adds the Android data synchronization 
 - Remote input accepts only commands defined by the Veyro protocol.
 - Contacts are never imported without a local confirmation and are transferred without photos.
 - Remote file requests are validated against the persisted SAF tree selected by the folder owner.
+- Clipboard sync is opt-in, text-only, limited to 20 KB, and deduplicated to prevent relay loops. Android may require Veyro to be in the foreground before clipboard text can be read.
 - The accessibility service does not transmit screen contents.
 - Communication travels directly between devices through Nearby Connections.
 

@@ -102,7 +102,8 @@ class EcosystemPreferencesInstrumentedTest {
             contactSync = true,
             presentationMode = false,
             drawingTablet = true,
-            remoteFiles = false
+            remoteFiles = false,
+            clipboardSync = true
         )
         try {
             preferences.setFeatureSettings(changedSettings)

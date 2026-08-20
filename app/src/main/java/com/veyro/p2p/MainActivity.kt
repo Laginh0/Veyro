@@ -16,6 +16,7 @@ import android.provider.Settings
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -119,7 +120,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.veyro.p2p.nearby.ConnectionStage
 import com.veyro.p2p.nearby.DiscoveredEndpoint
 import com.veyro.p2p.nearby.NearbyClientStatus
@@ -173,10 +173,12 @@ private data class ExtendedFeatureActions(
     val onChooseSharedFolder: () -> Unit,
     val onClearSharedFolder: () -> Unit,
     val onRequestRemoteFileList: (String) -> Unit,
-    val onRequestRemoteFileDownload: (String) -> Unit
+    val onRequestRemoteFileDownload: (String) -> Unit,
+    val onSyncClipboard: () -> Unit
 )
 
 class MainActivity : ComponentActivity() {
+    private val nearbyViewModel: NearbyViewModel by viewModels()
     private lateinit var permissionManager: PermissionManager
     private var permissionsGranted by mutableStateOf(false)
     private var notificationListenerGranted by mutableStateOf(false)
@@ -194,7 +196,6 @@ class MainActivity : ComponentActivity() {
         refreshFeatureAccessState()
 
         setContent {
-            val nearbyViewModel: NearbyViewModel = viewModel()
             val nearbyUiState by nearbyViewModel.uiState.collectAsState()
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -254,7 +255,8 @@ class MainActivity : ComponentActivity() {
                 onChooseSharedFolder = { sharedFolderLauncher.launch(null) },
                 onClearSharedFolder = nearbyViewModel::clearSharedFolder,
                 onRequestRemoteFileList = nearbyViewModel::requestRemoteFileList,
-                onRequestRemoteFileDownload = nearbyViewModel::requestRemoteFileDownload
+                onRequestRemoteFileDownload = nearbyViewModel::requestRemoteFileDownload,
+                onSyncClipboard = nearbyViewModel::syncClipboard
             )
 
             VeyroApp(
@@ -327,6 +329,7 @@ class MainActivity : ComponentActivity() {
             refreshPermissionState()
             refreshFeatureAccessState()
         }
+        nearbyViewModel.syncClipboardFromForeground()
     }
 
     private fun refreshPermissionState() {
@@ -1296,7 +1299,7 @@ private fun FeatureSettingsPanel(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Recursos do ecossistema", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        "${settings.enabledCount} de ${FeatureSettings().enabledCount} ativos",
+                        "${settings.enabledCount} de ${FeatureSettings.AVAILABLE_COUNT} ativos",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -1338,6 +1341,13 @@ private fun FeatureSettingsPanel(
                 checked = settings.sharedLinks,
                 icon = Icons.Default.Hub,
                 onCheckedChange = { onSettingsChange(settings.copy(sharedLinks = it)) }
+            )
+            FeatureToggleRow(
+                title = "Sincronizar clipboard",
+                detail = "Compartilhe somente texto ao voltar ao Veyro ou ao tocar em sincronizar.",
+                checked = settings.clipboardSync,
+                icon = Icons.Default.Devices,
+                onCheckedChange = { onSettingsChange(settings.copy(clipboardSync = it)) }
             )
             FeatureToggleRow(
                 title = "Pasta remota compartilhada",
@@ -2425,6 +2435,13 @@ private fun SessionControls(
                     onShareUrl = onShareUrl
                 )
             }
+            if (features.clipboardSync) {
+                Spacer(modifier = Modifier.height(12.dp))
+                ClipboardSyncPanel(
+                    status = uiState.clipboardStatus,
+                    onSync = extendedFeatureActions.onSyncClipboard
+                )
+            }
             if (features.contactSync) {
                 Spacer(modifier = Modifier.height(12.dp))
                 ContactSyncPanel(
@@ -2506,6 +2523,31 @@ private fun ConnectedEndpointSelector(
                     ) { Text(endpoint.name.removePrefix("Veyro - ")) }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClipboardSyncPanel(
+    status: String?,
+    onSync: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Sincronização de clipboard", fontWeight = FontWeight.SemiBold)
+            Text(
+                "Sincroniza apenas texto, sem imagens, arquivos ou conteúdo formatado. " +
+                    "No Android recente, volte ao Veyro após copiar para permitir a leitura.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(modifier = Modifier.fillMaxWidth(), onClick = onSync) {
+                Text("Sincronizar texto agora")
+            }
+            status?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -3867,7 +3909,8 @@ private fun VeyroScreenPreview() {
                 onChooseSharedFolder = {},
                 onClearSharedFolder = {},
                 onRequestRemoteFileList = {},
-                onRequestRemoteFileDownload = {}
+                onRequestRemoteFileDownload = {},
+                onSyncClipboard = {}
             ),
             onStopSession = {}
         )

@@ -81,6 +81,17 @@ object VeyroI18n {
         "Meça periodicamente a latência direta entre os aparelhos." to "Periodically measure direct latency between devices.",
         "Links compartilhados" to "Shared links",
         "Envie links que só abrem após um toque no destino." to "Send links that open only after a tap on the destination device.",
+        "Sincronizar clipboard" to "Sync clipboard",
+        "Compartilhe somente texto ao voltar ao Veyro ou ao tocar em sincronizar." to "Share text only when returning to Veyro or tapping sync.",
+        "Sincronização de clipboard" to "Clipboard synchronization",
+        "Sincroniza apenas texto, sem imagens, arquivos ou conteúdo formatado. No Android recente, volte ao Veyro após copiar para permitir a leitura." to "Synchronizes plain text only, without images, files, or formatted content. On recent Android versions, return to Veyro after copying to allow access.",
+        "Sincronizar texto agora" to "Sync text now",
+        "Conecte um aparelho antes de sincronizar o clipboard." to "Connect a device before synchronizing the clipboard.",
+        "O clipboard não contém texto acessível." to "The clipboard does not contain accessible text.",
+        "O texto excede o limite seguro de 20 KB." to "The text exceeds the safe 20 KB limit.",
+        "Clipboard enviado aos aparelhos conectados." to "Clipboard sent to connected devices.",
+        "Novo texto do clipboard sincronizado." to "New clipboard text synchronized.",
+        "O Android não permitiu atualizar o clipboard local." to "Android did not allow the local clipboard to be updated.",
         "Sincronizar notificações" to "Sync notifications",
         "Mostre e descarte notificações do aparelho conectado." to "Show and dismiss notifications from the connected device.",
         "Acompanhe e controle a reprodução remotamente." to "Monitor and control media playback remotely.",
@@ -415,6 +426,8 @@ object VeyroI18n {
             "Negotiating connection with " + text.removePrefix("Negociando conexão com ")
         text.startsWith("Regras de ") && text.endsWith(" atualizadas.") ->
             "Rules for " + text.removePrefix("Regras de ").removeSuffix(" atualizadas.") + " updated."
+        text.startsWith("Clipboard atualizado por ") ->
+            "Clipboard updated by " + text.removePrefix("Clipboard atualizado por ")
         else -> text
     }
 

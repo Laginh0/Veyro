@@ -24,6 +24,7 @@ message VeyroMessage {
     ContactSyncEvent contact_sync_event = 20;
     PresentationEvent presentation_event = 21;
     RemoteFileEvent remote_file_event = 22;
+    ClipboardSyncEvent clipboard_sync_event = 23;
   }
 }
 
@@ -250,4 +251,11 @@ enum RemoteFileAction {
   LIST_RESPONSE = 2;
   DOWNLOAD_REQUEST = 3;
   DOWNLOAD_REJECTED = 4;
+}
+
+message ClipboardSyncEvent {
+  string event_id = 1;
+  string source_device_id = 2;
+  string text = 3;
+  int64 event_timestamp = 4;
 }

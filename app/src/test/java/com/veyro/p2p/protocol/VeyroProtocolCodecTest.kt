@@ -267,4 +267,21 @@ class VeyroProtocolCodecTest {
         assertEquals(VeyroMessage.PayloadCase.REMOTE_FILE_EVENT, decoded?.payloadCase)
         assertEquals(event, decoded?.remoteFileEvent)
     }
+
+    @Test
+    fun clipboardEvent_roundTripsTextAndOrigin() {
+        val event = ClipboardSyncEvent.newBuilder()
+            .setEventId("clip-1")
+            .setSourceDeviceId("device-a")
+            .setText("Text copied on device A")
+            .setEventTimestamp(1234L)
+            .build()
+
+        val decoded = VeyroProtocolCodec.decodeFeatureMessage(
+            VeyroProtocolCodec.encodeClipboardSyncEvent(event)
+        )
+
+        assertEquals(VeyroMessage.PayloadCase.CLIPBOARD_SYNC_EVENT, decoded?.payloadCase)
+        assertEquals(event, decoded?.clipboardSyncEvent)
+    }
 }

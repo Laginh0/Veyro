@@ -7,10 +7,12 @@ import org.junit.Test
 
 class FeatureSettingsTest {
     @Test
-    fun defaultsEnableAllAvailableFeatures() {
+    fun defaultsKeepSensitiveClipboardSyncOptIn() {
         val settings = FeatureSettings()
 
         assertEquals(15, settings.enabledCount)
+        assertEquals(16, FeatureSettings.AVAILABLE_COUNT)
+        assertFalse(settings.clipboardSync)
         assertTrue(settings.requiresSpecialAccess)
     }
 
@@ -31,7 +33,8 @@ class FeatureSettingsTest {
             contactSync = false,
             presentationMode = false,
             drawingTablet = false,
-            remoteFiles = false
+            remoteFiles = false,
+            clipboardSync = false
         )
 
         assertEquals(2, settings.enabledCount)

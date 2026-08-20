@@ -89,6 +89,12 @@ object VeyroProtocolCodec {
         .build()
         .toByteArray()
 
+    fun encodeClipboardSyncEvent(event: ClipboardSyncEvent): ByteArray = VeyroMessage.newBuilder()
+        .setProtocolVersion(PROTOCOL_VERSION)
+        .setClipboardSyncEvent(event)
+        .build()
+        .toByteArray()
+
     fun decodeFeatureMessage(bytes: ByteArray): VeyroMessage? = runCatching {
         VeyroMessage.parseFrom(bytes)
     }.getOrNull()

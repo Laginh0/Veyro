@@ -49,7 +49,8 @@ data class FeatureSettings(
     val contactSync: Boolean = true,
     val presentationMode: Boolean = true,
     val drawingTablet: Boolean = true,
-    val remoteFiles: Boolean = true
+    val remoteFiles: Boolean = true,
+    val clipboardSync: Boolean = false
 ) {
     val enabledCount: Int
         get() = listOf(
@@ -67,12 +68,17 @@ data class FeatureSettings(
             contactSync,
             presentationMode,
             drawingTablet,
-            remoteFiles
+            remoteFiles,
+            clipboardSync
         ).count { it }
 
     val requiresSpecialAccess: Boolean
         get() = notificationSync || mediaControl || telephonySync || findDevice ||
             safeCommands || remoteInput || contactSync
+
+    companion object {
+        const val AVAILABLE_COUNT = 16
+    }
 }
 
 class EcosystemPreferences(context: Context) {
@@ -129,7 +135,8 @@ class EcosystemPreferences(context: Context) {
         contactSync = preferences.getBoolean(KEY_FEATURE_CONTACTS, true),
         presentationMode = preferences.getBoolean(KEY_FEATURE_PRESENTATION, true),
         drawingTablet = preferences.getBoolean(KEY_FEATURE_DRAWING_TABLET, true),
-        remoteFiles = preferences.getBoolean(KEY_FEATURE_REMOTE_FILES, true)
+        remoteFiles = preferences.getBoolean(KEY_FEATURE_REMOTE_FILES, true),
+        clipboardSync = preferences.getBoolean(KEY_FEATURE_CLIPBOARD, false)
     )
 
     fun setFeatureSettings(settings: FeatureSettings) {
@@ -149,6 +156,7 @@ class EcosystemPreferences(context: Context) {
             .putBoolean(KEY_FEATURE_PRESENTATION, settings.presentationMode)
             .putBoolean(KEY_FEATURE_DRAWING_TABLET, settings.drawingTablet)
             .putBoolean(KEY_FEATURE_REMOTE_FILES, settings.remoteFiles)
+            .putBoolean(KEY_FEATURE_CLIPBOARD, settings.clipboardSync)
             .apply()
     }
 
@@ -244,6 +252,7 @@ class EcosystemPreferences(context: Context) {
         const val KEY_FEATURE_PRESENTATION = "feature_presentation"
         const val KEY_FEATURE_DRAWING_TABLET = "feature_drawing_tablet"
         const val KEY_FEATURE_REMOTE_FILES = "feature_remote_files"
+        const val KEY_FEATURE_CLIPBOARD = "feature_clipboard"
         const val KEY_TRUSTED_DEVICE_NAMES = "trusted_device_names"
         const val SUFFIX_NAME = "name"
         const val SUFFIX_AUTO_FILES = "auto_files"
