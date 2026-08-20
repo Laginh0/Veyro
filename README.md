@@ -2,7 +2,7 @@
 
 Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly, without requiring a central cloud service to transport data. Every device can discover, receive, and send information through the same interface, with no fixed sender or receiver role.
 
-> Current status: **Alpha 0.1.6**. This version is under active development and intended for testing.
+> Current status: **Alpha 0.1.7**. This version is under active development and intended for testing.
 
 ## Key features
 
@@ -25,7 +25,7 @@ Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly,
 | Find my device | Starts and stops an audible alarm on the connected device. |
 | Calls and SMS | Synchronizes call state and requires local confirmation before sending a remote SMS. |
 | Link sharing | Sends web addresses for user-approved opening on another device. |
-| Clipboard sync | Synchronizes plain text across connected devices when the user returns to Veyro or taps the manual sync button; rich content is never transmitted. |
+| Clipboard sync | Synchronizes plain text when the user returns to Veyro, taps the manual action, or uses the optional Quick Settings tile; rich and sensitive content is never transmitted. |
 | Safe commands | Provides a restricted set of remote actions, including volume and flashlight control. |
 | Remote input | Performs gestures and text input when the user explicitly enables the accessibility service. |
 | Feature control center | Provides persistent switches that independently enable or disable every ecosystem module, including connectivity reports and P2P ping. |
@@ -68,7 +68,7 @@ During a file transfer, Veyro temporarily adds the Android data synchronization 
 - Remote input accepts only commands defined by the Veyro protocol.
 - Contacts are never imported without a local confirmation and are transferred without photos.
 - Remote file requests are validated against the persisted SAF tree selected by the folder owner.
-- Clipboard sync is opt-in, text-only, limited to 20 KB, and deduplicated to prevent relay loops. Android may require Veyro to be in the foreground before clipboard text can be read. Received text is marked as sensitive to hide its preview, and Android displays a local copy confirmation.
+- Clipboard sync is opt-in, text-only, limited to 20 KB, and deduplicated to prevent relay loops. Clips marked sensitive are rejected before transmission, while received clips are tagged as remote-device content. Android may require Veyro to be in the foreground before clipboard text can be read; the optional Quick Settings tile provides a one-tap focused action. Received text is marked as sensitive to hide its preview, and Android displays a local copy confirmation.
 - The accessibility service does not transmit screen contents.
 - Communication travels directly between devices through Nearby Connections.
 
@@ -151,7 +151,7 @@ Veyro is an independent project with its own interface, architecture, and roadma
 
 ## Current release
 
-The current test build is [Veyro Alpha 0.1.6](https://github.com/Laginh0/Veyro/releases/tag/v0.1.6-alpha).
+The current test build is [Veyro Alpha 0.1.7](https://github.com/Laginh0/Veyro/releases/tag/v0.1.7-alpha).
 
 Alpha APKs use a development signing key. Confirm that an existing installation uses the same key before attempting an update.
 

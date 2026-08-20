@@ -7,7 +7,15 @@ import android.content.Context
 import android.os.Build
 import android.os.PersistableBundle
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import java.security.MessageDigest
+
+sealed interface ClipboardReadResult {
+    data class Text(val value: String) : ClipboardReadResult
+    data object Empty : ClipboardReadResult
+    data object Sensitive : ClipboardReadResult
+    data object RemoteDevice : ClipboardReadResult
+}
 
 class ClipboardSyncManager(
     context: Context,
@@ -25,18 +33,31 @@ class ClipboardSyncManager(
         clipboardManager.addPrimaryClipChangedListener(listener)
     }
 
-    fun readPlainText(): String? = runCatching {
+    fun readPlainText(): ClipboardReadResult = runCatching {
         val clip = clipboardManager.primaryClip ?: return@runCatching null
         if (clip.itemCount == 0) return@runCatching null
-        clip.getItemAt(0).text?.toString()
-    }.getOrNull()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            if (hasDescriptionFlag(clip.description, EXTRA_IS_SENSITIVE)) {
+                return@runCatching ClipboardReadResult.Sensitive
+            }
+            if (hasDescriptionFlag(clip.description, EXTRA_IS_REMOTE_DEVICE)) {
+                return@runCatching ClipboardReadResult.RemoteDevice
+            }
+        }
+        clip.getItemAt(0).text?.toString()?.let(ClipboardReadResult::Text)
+    }.getOrNull() ?: ClipboardReadResult.Empty
 
     fun writePlainText(text: String) {
         remoteWriteFingerprint = fingerprint(text)
         val clip = ClipData.newPlainText(CLIP_LABEL, text).apply {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 description.extras = PersistableBundle().apply {
-                    putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        putBoolean(ClipDescription.EXTRA_IS_REMOTE_DEVICE, true)
+                    }
                 }
             }
         }
@@ -56,14 +77,26 @@ class ClipboardSyncManager(
 
     private fun consumeRemoteWrite(): Boolean {
         val expected = remoteWriteFingerprint ?: return false
-        val current = readPlainText()?.let(::fingerprint)
+        val current = rawPlainText()?.let(::fingerprint)
         remoteWriteFingerprint = null
         return current == expected
     }
 
+    private fun rawPlainText(): String? = runCatching {
+        val clip = clipboardManager.primaryClip ?: return@runCatching null
+        if (clip.itemCount == 0) return@runCatching null
+        clip.getItemAt(0).text?.toString()
+    }.getOrNull()
+
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun hasDescriptionFlag(description: ClipDescription, key: String): Boolean =
+        description.extras?.getBoolean(key) == true
+
     companion object {
         const val MAX_TEXT_BYTES = 20_000
         private const val CLIP_LABEL = "Veyro synchronized text"
+        private const val EXTRA_IS_SENSITIVE = "android.content.extra.IS_SENSITIVE"
+        private const val EXTRA_IS_REMOTE_DEVICE = "android.content.extra.IS_REMOTE_DEVICE"
 
         fun isSafeText(text: String): Boolean = text.toByteArray(Charsets.UTF_8).size <= MAX_TEXT_BYTES
 

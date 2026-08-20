@@ -3,17 +3,20 @@ package com.veyro.p2p
 import android.Manifest
 import android.app.role.RoleManager
 import android.app.NotificationManager
+import android.app.StatusBarManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.session.PlaybackState
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.ContactsContract
 import android.provider.Settings
 import android.view.MotionEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -142,6 +145,7 @@ import com.veyro.p2p.nearby.PendingContactImport
 import com.veyro.p2p.nearby.RemoteFileItem
 import com.veyro.p2p.nearby.RemotePresentationState
 import com.veyro.p2p.features.commands.SafeCustomCommandExecutor
+import com.veyro.p2p.features.clipboard.ClipboardQuickSettingsTileService
 import com.veyro.p2p.features.remoteinput.VeyroAccessibilityService
 import com.veyro.p2p.permissions.PermissionManager
 import com.veyro.p2p.protocol.MediaEventCategory
@@ -174,7 +178,8 @@ private data class ExtendedFeatureActions(
     val onClearSharedFolder: () -> Unit,
     val onRequestRemoteFileList: (String) -> Unit,
     val onRequestRemoteFileDownload: (String) -> Unit,
-    val onSyncClipboard: () -> Unit
+    val onSyncClipboard: () -> Unit,
+    val onRequestClipboardTile: () -> Unit
 )
 
 class MainActivity : ComponentActivity() {
@@ -256,7 +261,8 @@ class MainActivity : ComponentActivity() {
                 onClearSharedFolder = nearbyViewModel::clearSharedFolder,
                 onRequestRemoteFileList = nearbyViewModel::requestRemoteFileList,
                 onRequestRemoteFileDownload = nearbyViewModel::requestRemoteFileDownload,
-                onSyncClipboard = nearbyViewModel::syncClipboard
+                onSyncClipboard = nearbyViewModel::syncClipboard,
+                onRequestClipboardTile = ::requestClipboardTile
             )
 
             VeyroApp(
@@ -330,6 +336,31 @@ class MainActivity : ComponentActivity() {
             refreshFeatureAccessState()
         }
         nearbyViewModel.syncClipboardFromForeground()
+    }
+
+    private fun requestClipboardTile() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(
+                this,
+                "Edite os Controles rápidos e adicione Sincronizar clipboard.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        val statusBarManager = getSystemService(StatusBarManager::class.java)
+        statusBarManager.requestAddTileService(
+            ComponentName(this, ClipboardQuickSettingsTileService::class.java),
+            getString(R.string.clipboard_tile_label),
+            Icon.createWithResource(this, R.drawable.ic_veyro_clipboard_tile),
+            mainExecutor
+        ) { result ->
+            val message = if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
+                "Controle rápido do clipboard adicionado."
+            } else {
+                "O controle rápido não foi adicionado ou já existe."
+            }
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun refreshPermissionState() {
@@ -2439,7 +2470,8 @@ private fun SessionControls(
                 Spacer(modifier = Modifier.height(12.dp))
                 ClipboardSyncPanel(
                     status = uiState.clipboardStatus,
-                    onSync = extendedFeatureActions.onSyncClipboard
+                    onSync = extendedFeatureActions.onSyncClipboard,
+                    onAddQuickSettingsTile = extendedFeatureActions.onRequestClipboardTile
                 )
             }
             if (features.contactSync) {
@@ -2531,7 +2563,8 @@ private fun ConnectedEndpointSelector(
 @Composable
 private fun ClipboardSyncPanel(
     status: String?,
-    onSync: () -> Unit
+    onSync: () -> Unit,
+    onAddQuickSettingsTile: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -2545,6 +2578,13 @@ private fun ClipboardSyncPanel(
             Spacer(modifier = Modifier.height(10.dp))
             Button(modifier = Modifier.fillMaxWidth(), onClick = onSync) {
                 Text("Sincronizar texto agora")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onAddQuickSettingsTile
+            ) {
+                Text("Adicionar aos Controles rápidos")
             }
             status?.let {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -3911,7 +3951,8 @@ private fun VeyroScreenPreview() {
                 onClearSharedFolder = {},
                 onRequestRemoteFileList = {},
                 onRequestRemoteFileDownload = {},
-                onSyncClipboard = {}
+                onSyncClipboard = {},
+                onRequestClipboardTile = {}
             ),
             onStopSession = {}
         )

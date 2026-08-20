@@ -19,6 +19,7 @@ import com.google.android.gms.tasks.Task
 import com.veyro.p2p.features.battery.BatteryStatusMonitor
 import com.veyro.p2p.features.commands.SafeCustomCommandExecutor
 import com.veyro.p2p.features.clipboard.ClipboardSyncManager
+import com.veyro.p2p.features.clipboard.ClipboardReadResult
 import com.veyro.p2p.features.connectivity.ConnectivityStatusMonitor
 import com.veyro.p2p.features.contacts.ContactSyncManager
 import com.veyro.p2p.features.finddevice.FindMyDeviceAlarmController
@@ -667,13 +668,29 @@ internal class NearbySessionController(
             )
             return
         }
-        val text = clipboardSyncManager.readPlainText()
-        if (text == null) {
-            if (manual) updateClipboardStatus(
-                "O clipboard não contém texto acessível.",
-                isError = true
-            )
-            return
+        val text = when (val result = clipboardSyncManager.readPlainText()) {
+            is ClipboardReadResult.Text -> result.value
+            ClipboardReadResult.Sensitive -> {
+                updateClipboardStatus(
+                    "Conteúdo sensível não foi compartilhado.",
+                    isError = false
+                )
+                return
+            }
+            ClipboardReadResult.RemoteDevice -> {
+                if (manual) updateClipboardStatus(
+                    "Este texto já veio de outro aparelho e não será reenviado.",
+                    isError = false
+                )
+                return
+            }
+            ClipboardReadResult.Empty -> {
+                if (manual) updateClipboardStatus(
+                    "O clipboard não contém texto acessível.",
+                    isError = true
+                )
+                return
+            }
         }
         if (!ClipboardSyncManager.isSafeText(text)) {
             updateClipboardStatus("O texto excede o limite seguro de 20 KB.", isError = true)

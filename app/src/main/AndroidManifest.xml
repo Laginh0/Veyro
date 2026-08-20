@@ -77,6 +77,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".features.clipboard.ClipboardSyncActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@style/Theme.Veyro.ClipboardSync" />
         <service
             android:name=".service.P2PTransferService"
             android:exported="false"
@@ -112,6 +118,21 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/veyro_accessibility_service" />
+        </service>
+        <service
+            android:name=".features.clipboard.ClipboardQuickSettingsTileService"
+            android:enabled="@bool/clipboard_quick_settings_tile_enabled"
+            android:exported="true"
+            android:icon="@drawable/ic_veyro_clipboard_tile"
+            android:label="@string/clipboard_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            tools:targetApi="24">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.ACTIVE_TILE"
+                android:value="true" />
         </service>
         <receiver
             android:name=".features.telephony.SmsReceivedReceiver"

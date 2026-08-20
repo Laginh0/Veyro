@@ -101,6 +101,11 @@ class P2PTransferService : Service() {
             }
 
             ACTION_STOP_SESSION -> stopSession()
+            ACTION_SYNC_CLIPBOARD -> {
+                if (controller.uiState.value.ecosystemEnabled) startForegroundSession()
+                controller.syncLocalClipboard(manual = true)
+                if (!controller.uiState.value.ecosystemEnabled) stopSelfResult(startId)
+            }
             null -> if (controller.uiState.value.ecosystemEnabled) {
                 startForegroundSession()
                 controller.restoreContinuousEcosystemIfEnabled()
@@ -451,6 +456,7 @@ class P2PTransferService : Service() {
         const val ACTION_START_DISCOVERY = "com.veyro.p2p.action.START_DISCOVERY"
         const val ACTION_START_ECOSYSTEM = "com.veyro.p2p.action.START_ECOSYSTEM"
         const val ACTION_STOP_SESSION = "com.veyro.p2p.action.STOP_SESSION"
+        const val ACTION_SYNC_CLIPBOARD = "com.veyro.p2p.action.SYNC_CLIPBOARD"
 
         private const val NOTIFICATION_CHANNEL_ID = "veyro_p2p_transfers"
         private const val NOTIFICATION_ID = 9001
