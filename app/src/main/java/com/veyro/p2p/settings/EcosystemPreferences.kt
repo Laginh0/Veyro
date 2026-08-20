@@ -39,13 +39,13 @@ data class FeatureSettings(
     val batterySync: Boolean = true,
     val connectivitySync: Boolean = true,
     val ping: Boolean = true,
-    val notificationSync: Boolean = true,
-    val mediaControl: Boolean = true,
-    val telephonySync: Boolean = true,
-    val findDevice: Boolean = true,
-    val safeCommands: Boolean = true,
+    val notificationSync: Boolean = false,
+    val mediaControl: Boolean = false,
+    val telephonySync: Boolean = false,
+    val findDevice: Boolean = false,
+    val safeCommands: Boolean = false,
     val sharedLinks: Boolean = true,
-    val remoteInput: Boolean = true,
+    val remoteInput: Boolean = false,
     val contactSync: Boolean = true,
     val presentationMode: Boolean = true,
     val drawingTablet: Boolean = true,
@@ -74,7 +74,7 @@ data class FeatureSettings(
 
     val requiresSpecialAccess: Boolean
         get() = notificationSync || mediaControl || telephonySync || findDevice ||
-            safeCommands || remoteInput || contactSync
+            safeCommands || remoteInput
 
     companion object {
         const val AVAILABLE_COUNT = 16
@@ -125,13 +125,13 @@ class EcosystemPreferences(context: Context) {
         batterySync = preferences.getBoolean(KEY_FEATURE_BATTERY, true),
         connectivitySync = preferences.getBoolean(KEY_FEATURE_CONNECTIVITY, true),
         ping = preferences.getBoolean(KEY_FEATURE_PING, true),
-        notificationSync = preferences.getBoolean(KEY_FEATURE_NOTIFICATIONS, true),
-        mediaControl = preferences.getBoolean(KEY_FEATURE_MEDIA, true),
-        telephonySync = preferences.getBoolean(KEY_FEATURE_TELEPHONY, true),
-        findDevice = preferences.getBoolean(KEY_FEATURE_FIND_DEVICE, true),
-        safeCommands = preferences.getBoolean(KEY_FEATURE_SAFE_COMMANDS, true),
+        notificationSync = preferences.getBoolean(KEY_FEATURE_NOTIFICATIONS, false),
+        mediaControl = preferences.getBoolean(KEY_FEATURE_MEDIA, false),
+        telephonySync = preferences.getBoolean(KEY_FEATURE_TELEPHONY, false),
+        findDevice = preferences.getBoolean(KEY_FEATURE_FIND_DEVICE, false),
+        safeCommands = preferences.getBoolean(KEY_FEATURE_SAFE_COMMANDS, false),
         sharedLinks = preferences.getBoolean(KEY_FEATURE_SHARED_LINKS, true),
-        remoteInput = preferences.getBoolean(KEY_FEATURE_REMOTE_INPUT, true),
+        remoteInput = preferences.getBoolean(KEY_FEATURE_REMOTE_INPUT, false),
         contactSync = preferences.getBoolean(KEY_FEATURE_CONTACTS, true),
         presentationMode = preferences.getBoolean(KEY_FEATURE_PRESENTATION, true),
         drawingTablet = preferences.getBoolean(KEY_FEATURE_DRAWING_TABLET, true),

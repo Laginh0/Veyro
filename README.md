@@ -2,7 +2,7 @@
 
 Veyro is a peer-to-peer Android ecosystem that connects nearby devices directly, without requiring a central cloud service to transport data. Every device can discover, receive, and send information through the same interface, with no fixed sender or receiver role.
 
-> Current status: **Alpha 0.1.7**. This version is under active development and intended for testing.
+> Current status: **Alpha 0.1.8**. This version is under active development and intended for testing.
 
 ## Key features
 
@@ -69,6 +69,7 @@ During a file transfer, Veyro temporarily adds the Android data synchronization 
 - Contacts are never imported without a local confirmation and are transferred without photos.
 - Remote file requests are validated against the persisted SAF tree selected by the folder owner.
 - Clipboard sync is opt-in, text-only, limited to 20 KB, and deduplicated to prevent relay loops. Clips marked sensitive are rejected before transmission, while received clips are tagged as remote-device content. Android may require Veyro to be in the foreground before clipboard text can be read; the optional Quick Settings tile provides a one-tap focused action. Received text is marked as sensitive to hide its preview, and Android displays a local copy confirmation.
+- Initial setup requests only the nearby-device access required for direct connections. Calls, SMS, contacts, camera, notification access, Do Not Disturb access, and Accessibility remain optional and are requested in context when the user enables or invokes the related feature.
 - The accessibility service does not transmit screen contents.
 - Communication travels directly between devices through Nearby Connections.
 
@@ -151,7 +152,7 @@ Veyro is an independent project with its own interface, architecture, and roadma
 
 ## Current release
 
-The current test build is [Veyro Alpha 0.1.7](https://github.com/Laginh0/Veyro/releases/tag/v0.1.7-alpha).
+The latest published test build is [Veyro Alpha 0.1.7](https://github.com/Laginh0/Veyro/releases/tag/v0.1.7-alpha). The 0.1.8 source is being validated before publication.
 
 Alpha APKs use a development signing key. Confirm that an existing installation uses the same key before attempting an update.
 

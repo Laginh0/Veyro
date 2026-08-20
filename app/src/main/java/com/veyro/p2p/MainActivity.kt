@@ -147,6 +147,7 @@ import com.veyro.p2p.nearby.RemotePresentationState
 import com.veyro.p2p.features.commands.SafeCustomCommandExecutor
 import com.veyro.p2p.features.clipboard.ClipboardQuickSettingsTileService
 import com.veyro.p2p.features.remoteinput.VeyroAccessibilityService
+import com.veyro.p2p.permissions.OptionalFeatureAccess
 import com.veyro.p2p.permissions.PermissionManager
 import com.veyro.p2p.protocol.MediaEventCategory
 import com.veyro.p2p.protocol.TelecommunicationType
@@ -182,6 +183,11 @@ private data class ExtendedFeatureActions(
     val onRequestClipboardTile: () -> Unit
 )
 
+private data class PendingFeatureActivation(
+    val settings: FeatureSettings,
+    val access: OptionalFeatureAccess
+)
+
 class MainActivity : ComponentActivity() {
     private val nearbyViewModel: NearbyViewModel by viewModels()
     private lateinit var permissionManager: PermissionManager
@@ -202,6 +208,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val nearbyUiState by nearbyViewModel.uiState.collectAsState()
+            var pendingFeatureActivation by remember {
+                mutableStateOf<PendingFeatureActivation?>(null)
+            }
+            var showFeatureAccessDialog by remember { mutableStateOf(false) }
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions()
             ) {
@@ -238,6 +248,43 @@ class MainActivity : ComponentActivity() {
             val sharedFolderLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.OpenDocumentTree()
             ) { uri -> uri?.let(nearbyViewModel::setSharedFolder) }
+
+            LaunchedEffect(
+                pendingFeatureActivation,
+                notificationListenerGranted,
+                notificationPolicyGranted,
+                telephonyPermissionsGranted,
+                cameraPermissionGranted,
+                remoteInputAccessibilityGranted
+            ) {
+                val pending = pendingFeatureActivation ?: return@LaunchedEffect
+                if (isOptionalFeatureAccessGranted(pending.access)) {
+                    nearbyViewModel.setFeatureSettings(pending.settings)
+                    pendingFeatureActivation = null
+                    showFeatureAccessDialog = false
+                }
+            }
+
+            LaunchedEffect(
+                nearbyUiState.featureSettings,
+                notificationListenerGranted,
+                notificationPolicyGranted,
+                telephonyPermissionsGranted,
+                cameraPermissionGranted,
+                remoteInputAccessibilityGranted
+            ) {
+                val availableSettings = PermissionManager.disableUnavailablePrivilegedFeatures(
+                    settings = nearbyUiState.featureSettings,
+                    notificationListenerGranted = notificationListenerGranted,
+                    notificationPolicyGranted = notificationPolicyGranted,
+                    telephonyPermissionsGranted = telephonyPermissionsGranted,
+                    cameraPermissionGranted = cameraPermissionGranted,
+                    accessibilityGranted = remoteInputAccessibilityGranted
+                )
+                if (availableSettings != nearbyUiState.featureSettings) {
+                    nearbyViewModel.setFeatureSettings(availableSettings)
+                }
+            }
             val extendedFeatureActions = ExtendedFeatureActions(
                 onSelectConnectedEndpoint = nearbyViewModel::selectConnectedEndpoint,
                 onPickContact = { contactPickerLauncher.launch(null) },
@@ -322,10 +369,62 @@ class MainActivity : ComponentActivity() {
                 onRemoveTrustedDevice = nearbyViewModel::removeTrustedDevice,
                 onSetEnergyMode = nearbyViewModel::setEnergyMode,
                 onSetAppLanguage = nearbyViewModel::setAppLanguage,
-                onSetFeatureSettings = nearbyViewModel::setFeatureSettings,
+                onSetFeatureSettings = { requestedSettings ->
+                    val requiredAccess = PermissionManager.optionalAccessForActivation(
+                        current = nearbyUiState.featureSettings,
+                        requested = requestedSettings
+                    )
+                    if (requiredAccess == null || isOptionalFeatureAccessGranted(requiredAccess)) {
+                        nearbyViewModel.setFeatureSettings(requestedSettings)
+                    } else {
+                        pendingFeatureActivation = PendingFeatureActivation(
+                            settings = requestedSettings,
+                            access = requiredAccess
+                        )
+                        showFeatureAccessDialog = true
+                    }
+                },
                 extendedFeatureActions = extendedFeatureActions,
                 onStopSession = nearbyViewModel::stopSession
             )
+
+            pendingFeatureActivation
+                ?.takeIf { showFeatureAccessDialog }
+                ?.let { pending ->
+                    OptionalFeatureAccessDialog(
+                        access = pending.access,
+                        onContinue = {
+                            showFeatureAccessDialog = false
+                            when (pending.access) {
+                                OptionalFeatureAccess.NOTIFICATION_LISTENER -> {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                                        openSystemSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                    }
+                                }
+                                OptionalFeatureAccess.NOTIFICATION_POLICY -> {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                        openSystemSettings(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                                    }
+                                }
+                                OptionalFeatureAccess.TELEPHONY -> {
+                                    telephonyPermissionLauncher.launch(
+                                        permissionManager.optionalTelephonyPermissions().toTypedArray()
+                                    )
+                                }
+                                OptionalFeatureAccess.CAMERA -> {
+                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                }
+                                OptionalFeatureAccess.ACCESSIBILITY -> {
+                                    openSystemSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                }
+                            }
+                        },
+                        onDismiss = {
+                            pendingFeatureActivation = null
+                            showFeatureAccessDialog = false
+                        }
+                    )
+                }
         }
     }
 
@@ -395,6 +494,14 @@ class MainActivity : ComponentActivity() {
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ).orEmpty().split(':').mapNotNull(ComponentName::unflattenFromString)
             .any { it == accessibilityComponent }
+    }
+
+    private fun isOptionalFeatureAccessGranted(access: OptionalFeatureAccess): Boolean = when (access) {
+        OptionalFeatureAccess.NOTIFICATION_LISTENER -> notificationListenerGranted
+        OptionalFeatureAccess.NOTIFICATION_POLICY -> notificationPolicyGranted
+        OptionalFeatureAccess.TELEPHONY -> telephonyPermissionsGranted
+        OptionalFeatureAccess.CAMERA -> cameraPermissionGranted
+        OptionalFeatureAccess.ACCESSIBILITY -> remoteInputAccessibilityGranted
     }
 
     private fun requestCallScreeningRole() {
@@ -3865,7 +3972,7 @@ private fun PermissionStatusCard(permissionsGranted: Boolean) {
                     text = if (permissionsGranted) {
                     "Rádios locais autorizados."
                 } else {
-                    "Autorize dispositivos próximos e notificações para continuar."
+                    "Autorize dispositivos próximos para continuar."
                     },
                     color = contentColor,
                     style = MaterialTheme.typography.bodyMedium
@@ -3886,8 +3993,8 @@ private fun PermissionExplanationDialog(
         text = {
             Text(
                 "A Veyro usa Bluetooth e Wi-Fi local para localizar outros aparelhos " +
-                    "e transferir arquivos diretamente, sem enviar sua localização. " +
-                    "A notificação mantém transferências longas ativas em segundo plano."
+                    "e transferir dados diretamente, sem enviar sua localização. " +
+                    "Os demais acessos são opcionais e serão explicados somente ao ativar a função correspondente."
             )
         },
         confirmButton = {
@@ -3895,6 +4002,42 @@ private fun PermissionExplanationDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Agora não") }
+        }
+    )
+}
+
+@Composable
+private fun OptionalFeatureAccessDialog(
+    access: OptionalFeatureAccess,
+    onContinue: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val (title, detail) = when (access) {
+        OptionalFeatureAccess.NOTIFICATION_LISTENER ->
+            "Acesso às notificações necessário" to
+                "Este recurso precisa do acesso especial às notificações para ler estados locais e permitir a sincronização. O Android mostrará a tela onde você pode autorizar o Veyro."
+        OptionalFeatureAccess.NOTIFICATION_POLICY ->
+            "Acesso a Modos necessário" to
+                "Encontrar aparelho precisa controlar temporariamente o áudio mesmo quando Não Perturbe estiver ativo. O Android mostrará a tela de acesso a Modos."
+        OptionalFeatureAccess.TELEPHONY ->
+            "Permissões de telefone e SMS necessárias" to
+                "Chamadas e SMS precisa acessar o estado do telefone, contatos, mensagens e notificações. Os dados só circulam durante uma conexão e todo SMS remoto ainda exige confirmação local."
+        OptionalFeatureAccess.CAMERA ->
+            "Permissão de câmera necessária" to
+                "Ações remotas seguras usa a permissão de câmera somente para ligar ou desligar a lanterna. O Veyro não captura imagens."
+        OptionalFeatureAccess.ACCESSIBILITY ->
+            "Acesso de controle remoto necessário" to
+                "Mouse e teclado remotos precisa do serviço de Acessibilidade para executar gestos e inserir texto. O Veyro não transmite o conteúdo da tela."
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(detail) },
+        confirmButton = {
+            TextButton(onClick = onContinue) { Text("Conceder acesso") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Manter desativado") }
         }
     )
 }

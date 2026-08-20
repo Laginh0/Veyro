@@ -36,4 +36,19 @@ class VeyroI18nTest {
             VeyroI18n.translate("15 de 15 ativos", AppLanguage.ENGLISH)
         )
     }
+
+    @Test
+    fun englishTranslatesContextualPermissionConsent() {
+        assertEquals(
+            "Remote control access required",
+            VeyroI18n.translate(
+                "Acesso de controle remoto necessário",
+                AppLanguage.ENGLISH
+            )
+        )
+        assertEquals(
+            "Keep disabled",
+            VeyroI18n.translate("Manter desativado", AppLanguage.ENGLISH)
+        )
+    }
 }

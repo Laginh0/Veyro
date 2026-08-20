@@ -2,18 +2,23 @@ package com.veyro.p2p.settings
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FeatureSettingsTest {
     @Test
-    fun defaultsKeepSensitiveClipboardSyncOptIn() {
+    fun defaultsKeepSensitiveAndPrivilegedFeaturesOptIn() {
         val settings = FeatureSettings()
 
-        assertEquals(15, settings.enabledCount)
+        assertEquals(9, settings.enabledCount)
         assertEquals(16, FeatureSettings.AVAILABLE_COUNT)
         assertFalse(settings.clipboardSync)
-        assertTrue(settings.requiresSpecialAccess)
+        assertFalse(settings.notificationSync)
+        assertFalse(settings.mediaControl)
+        assertFalse(settings.telephonySync)
+        assertFalse(settings.findDevice)
+        assertFalse(settings.safeCommands)
+        assertFalse(settings.remoteInput)
+        assertFalse(settings.requiresSpecialAccess)
     }
 
     @Test
