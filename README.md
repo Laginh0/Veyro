@@ -152,7 +152,7 @@ Veyro is an independent project with its own interface, architecture, and roadma
 
 ## Current release
 
-The latest published test build is [Veyro Alpha 0.1.7](https://github.com/Laginh0/Veyro/releases/tag/v0.1.7-alpha). The 0.1.8 source is being validated before publication.
+The current test build is [Veyro Alpha 0.1.8](https://github.com/Laginh0/Veyro/releases/tag/v0.1.8-alpha).
 
 Alpha APKs use a development signing key. Confirm that an existing installation uses the same key before attempting an update.
 
