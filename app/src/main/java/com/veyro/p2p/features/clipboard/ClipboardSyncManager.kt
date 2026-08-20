@@ -1,15 +1,20 @@
 package com.veyro.p2p.features.clipboard
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
+import android.os.PersistableBundle
+import android.widget.Toast
 import java.security.MessageDigest
 
 class ClipboardSyncManager(
     context: Context,
     private val onLocalClipboardChanged: () -> Unit
 ) : AutoCloseable {
-    private val clipboardManager = context.applicationContext
+    private val appContext = context.applicationContext
+    private val clipboardManager = appContext
         .getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     private val listener = ClipboardManager.OnPrimaryClipChangedListener {
         if (!consumeRemoteWrite()) onLocalClipboardChanged()
@@ -28,7 +33,21 @@ class ClipboardSyncManager(
 
     fun writePlainText(text: String) {
         remoteWriteFingerprint = fingerprint(text)
-        clipboardManager.setPrimaryClip(ClipData.newPlainText(CLIP_LABEL, text))
+        val clip = ClipData.newPlainText(CLIP_LABEL, text).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                description.extras = PersistableBundle().apply {
+                    putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                }
+            }
+        }
+        clipboardManager.setPrimaryClip(clip)
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            Toast.makeText(
+                appContext,
+                "Veyro copiou um texto recebido para o clipboard.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     override fun close() {

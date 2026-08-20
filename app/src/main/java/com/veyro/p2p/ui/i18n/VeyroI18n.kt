@@ -84,7 +84,7 @@ object VeyroI18n {
         "Sincronizar clipboard" to "Sync clipboard",
         "Compartilhe somente texto ao voltar ao Veyro ou ao tocar em sincronizar." to "Share text only when returning to Veyro or tapping sync.",
         "Sincronização de clipboard" to "Clipboard synchronization",
-        "Sincroniza apenas texto, sem imagens, arquivos ou conteúdo formatado. No Android recente, volte ao Veyro após copiar para permitir a leitura." to "Synchronizes plain text only, without images, files, or formatted content. On recent Android versions, return to Veyro after copying to allow access.",
+        "Sincroniza apenas texto, sem imagens, arquivos ou conteúdo formatado. No Android recente, volte ao Veyro após copiar para permitir a leitura. O sistema avisa quando um texto recebido é colocado no clipboard." to "Synchronizes plain text only, without images, files, or formatted content. On recent Android versions, return to Veyro after copying to allow access. The system alerts you when received text is placed on the clipboard.",
         "Sincronizar texto agora" to "Sync text now",
         "Conecte um aparelho antes de sincronizar o clipboard." to "Connect a device before synchronizing the clipboard.",
         "O clipboard não contém texto acessível." to "The clipboard does not contain accessible text.",

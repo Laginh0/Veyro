@@ -68,7 +68,7 @@ During a file transfer, Veyro temporarily adds the Android data synchronization 
 - Remote input accepts only commands defined by the Veyro protocol.
 - Contacts are never imported without a local confirmation and are transferred without photos.
 - Remote file requests are validated against the persisted SAF tree selected by the folder owner.
-- Clipboard sync is opt-in, text-only, limited to 20 KB, and deduplicated to prevent relay loops. Android may require Veyro to be in the foreground before clipboard text can be read.
+- Clipboard sync is opt-in, text-only, limited to 20 KB, and deduplicated to prevent relay loops. Android may require Veyro to be in the foreground before clipboard text can be read. Received text is marked as sensitive to hide its preview, and Android displays a local copy confirmation.
 - The accessibility service does not transmit screen contents.
 - Communication travels directly between devices through Nearby Connections.
 

@@ -2538,7 +2538,8 @@ private fun ClipboardSyncPanel(
             Text("Sincronização de clipboard", fontWeight = FontWeight.SemiBold)
             Text(
                 "Sincroniza apenas texto, sem imagens, arquivos ou conteúdo formatado. " +
-                    "No Android recente, volte ao Veyro após copiar para permitir a leitura.",
+                    "No Android recente, volte ao Veyro após copiar para permitir a leitura. " +
+                    "O sistema avisa quando um texto recebido é colocado no clipboard.",
                 style = MaterialTheme.typography.bodySmall
             )
             Spacer(modifier = Modifier.height(10.dp))
