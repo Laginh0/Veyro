@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="clipboard_quick_settings_tile_enabled">true</bool>
+</resources>

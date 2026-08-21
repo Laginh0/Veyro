@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_input_accessibility_description">Permite executar gestos e inserir texto recebidos de um aparelho Veyro conectado. Nenhum conteúdo da tela é transmitido.</string>
+    <string name="clipboard_tile_label">Sincronizar clipboard</string>
+    <string name="clipboard_tile_ready">Pronto</string>
+    <string name="clipboard_tile_inactive">Inativo</string>
+    <string name="clipboard_tile_enable_feature">Ative a sincronização de clipboard no Veyro.</string>
+    <string name="clipboard_tile_enable_ecosystem">Ative o ecossistema Veyro primeiro.</string>
+    <string name="clipboard_tile_sync_requested">Sincronizando o clipboard pelo Veyro.</string>
+</resources>
