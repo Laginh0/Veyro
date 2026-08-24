@@ -2,7 +2,7 @@
 
 ## Status
 
-Veyro Mobile `0.1.9-alpha` implements the Android side of the transports introduced by Veyro Desktop Milestones 2 and 3:
+Veyro Mobile `0.1.10-alpha` implements the Android side of the transports introduced by Veyro Desktop Milestones 2 and 3:
 
 - simultaneous BLE advertising and scanning;
 - GATT service and client using the Veyro UUIDs;
@@ -17,7 +17,7 @@ Veyro Mobile `0.1.9-alpha` implements the Android side of the transports introdu
 - `VYRO` framing, version hello, keepalive, timeout, and authenticated resumption;
 - transport of `VeyroMessage` data inside `TransportEnvelope`.
 
-Automated tests and builds pass on both platforms. Physical Android ↔ Windows acceptance remains pending for the joint phone and PC test session.
+Automated tests and builds pass on both platforms. Physical testing confirmed bilateral BLE discovery and pairing, P2P recovery without toggling infrastructure Wi-Fi, and a successful Android 16 mutual-TLS session. The secure channel disconnected before the 45-second observation finished, so keepalive and authenticated resumption remain pending for the joint Desktop acceptance run.
 
 ## Preserved compatibility
 
@@ -74,11 +74,15 @@ After the first pairing, both devices prove possession of their persistent keys 
 - hello time window: two minutes;
 - mandatory confirmation on both devices.
 
+The Android Keystore identity is versioned as `v2`. It authorizes SHA-256 for Veyro protocol signatures and the raw ECDSA operation used internally by Conscrypt after the TLS transcript has already been hashed. Upgrading from `0.1.9-alpha` rotates this key and therefore requires one new PIN confirmation with previously trusted Desktop installations.
+
+Debug builds intentionally auto-confirm pairing on both transports to speed up controlled hardware diagnosis. The interface identifies this behavior with a `DEBUG` message. Non-debug builds always retain bilateral PIN confirmation.
+
 On the fast channel, the presented certificate must contain the trusted device ID in its `CN` and exactly match the public SPKI stored in the Trust Hub. A public certificate chain does not replace bilateral pinning.
 
 ## Physical acceptance checklist
 
-Before testing, temporarily disconnect both devices from the router while keeping Bluetooth and Wi-Fi enabled.
+Keep Bluetooth and Wi-Fi enabled. Begin while Android remains connected to its normal Wi-Fi network to verify infrastructure/P2P coexistence; then repeat without router association while leaving the Wi-Fi radio enabled.
 
 1. Confirm that Android and Desktop discover each other over BLE.
 2. Start pairing from Android and confirm matching PINs.
@@ -87,7 +91,7 @@ Before testing, temporarily disconnect both devices from the router while keepin
 5. Confirm Wi-Fi Direct group formation without a LAN.
 6. Confirm mutual TLS, ALPN `veyro/1`, and the protocol hello.
 7. Observe keepalive behavior for at least 60 seconds.
-8. Disable and re-enable Wi-Fi, then verify reconstruction and resumption within five minutes.
+8. Interrupt only the Wi-Fi Direct group and verify reconstruction and resumption within five minutes without disconnecting the normal Wi-Fi network.
 9. Disable Bluetooth after the fast channel is active and record the behavior.
 10. Confirm that an Android ↔ Android session still works through Nearby after the PC tests.
 
@@ -95,7 +99,7 @@ During testing, collect visible status information from both interfaces and sani
 
 ## Current limitations
 
-- Physical acceptance has not been executed; actual BLE advertising and Wi-Fi Direct availability depends on adapters and drivers.
+- BLE discovery, bilateral pairing, separate-interface Wi-Fi Direct, and Android 16 mutual TLS have been physically accepted on the current Android/Windows pair. The session later entered its five-minute resumption window, so keepalive stability and authenticated resumption are not yet accepted.
 - The fast channel requires Android 10 or newer. Older Android devices can continue to use Nearby with other Android devices.
 - Desktop Milestone 3 establishes and maintains the transport but does not yet expose every Android feature in its UI.
 - Large files still use the dedicated Nearby payload between Android devices. Desktop fast-channel file streaming must be specified before it is enabled.
@@ -109,5 +113,6 @@ During testing, collect visible status information from both interfaces and sani
 | PIN is not shown | GATT availability, Veyro characteristic discovery, and notifications enabled |
 | PIN differs | clocks within the two-minute window and both builds using the current shared contract |
 | Wi-Fi Direct does not form | Wi-Fi enabled, applicable Nearby Wi-Fi/location permission, and Windows adapter driver |
+| Normal Wi-Fi disconnects | Treat as a driver/platform concurrency issue; Veyro itself resets only its P2P group and never toggles infrastructure Wi-Fi |
 | TLS fails | trust not revoked, SPKI equal to the paired key, correct date/time, and ALPN `veyro/1` |
 | Channel drops after 15 seconds | blocked keepalive, lost P2P interface, or socket bound to the wrong address |

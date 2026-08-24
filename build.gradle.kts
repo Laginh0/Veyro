@@ -15,8 +15,8 @@ android {
         applicationId = "com.veyro.p2p"
         minSdk = 21
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.1.9-alpha"
+        versionCode = 10
+        versionName = "0.1.10-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -33,7 +33,7 @@ android {
     sourceSets {
         getByName("main") {
             proto {
-                srcDir(rootProject.file("../protocol"))
+                srcDir("src/main/proto")
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.veyro.p2p.protocol
 
+import com.google.protobuf.ByteString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -144,6 +145,27 @@ class VeyroProtocolCodecTest {
             .setTrackName("Faixa de teste")
             .setArtistName("Artista de teste")
             .setCurrentPositionMs(42_000L)
+            .setDurationMs(180_000L)
+            .setArtworkThumbnail(ByteString.copyFrom(byteArrayOf(1, 2, 3)))
+            .setArtworkMimeType("image/jpeg")
+            .setVolumeLevel(8)
+            .setVolumeMax(15)
+            .addAudioStreamVolumes(
+                AudioStreamVolume.newBuilder()
+                    .setStreamKind(AudioStreamKind.MEDIA)
+                    .setDisplayName("Mídia")
+                    .setCurrentVolume(8)
+                    .setMaxVolume(15)
+                    .build()
+            )
+            .addAudioOutputRoutes(
+                AudioOutputRoute.newBuilder()
+                    .setRouteId(1)
+                    .setDisplayName("Alto-falante")
+                    .setRouteType("SPEAKER")
+                    .setIsActive(true)
+                    .build()
+            )
             .build()
 
         val decoded = VeyroProtocolCodec.decodeFeatureMessage(

@@ -19,11 +19,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.veyro.p2p.MainActivity
 import com.veyro.p2p.R
+import com.veyro.p2p.features.media.RemoteMediaNotificationManager
 import com.veyro.p2p.nearby.ConnectionStage
 import com.veyro.p2p.nearby.NearbyClientUiState
 import com.veyro.p2p.nearby.NearbySessionController
 import com.veyro.p2p.nearby.RawFileStatus
 import com.veyro.p2p.protocol.FindDeviceTrigger
+import com.veyro.p2p.protocol.AudioStreamKind
 import com.veyro.p2p.protocol.MediaEventCategory
 import com.veyro.p2p.protocol.RemoteInputCommand
 import com.veyro.p2p.protocol.PresentationAction
@@ -46,6 +48,7 @@ class P2PTransferService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var controller: NearbySessionController
     private lateinit var notificationManager: NotificationManager
+    private lateinit var remoteMediaNotificationManager: RemoteMediaNotificationManager
     private var wakeLock: PowerManager.WakeLock? = null
     private var isForegroundStarted = false
     private var screenReceiverRegistered = false
@@ -69,15 +72,30 @@ class P2PTransferService : Service() {
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        remoteMediaNotificationManager = RemoteMediaNotificationManager(this)
         createNotificationChannel()
         controller = NearbySessionController(application, serviceScope)
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         controller.onScreenStateChanged(powerManager.isInteractive)
         registerScreenReceiver()
 
+        // A bound service does not necessarily receive onStartCommand(). Restore the
+        // persisted ecosystem state here as well so BLE advertising and trusted-device
+        // reconnection start immediately after the app/service process is recreated.
+        if (EcosystemPreferences(this).ecosystemEnabled()) {
+            startForegroundSession()
+            controller.restoreContinuousEcosystemIfEnabled()
+        }
+
         serviceScope.launch {
             controller.uiState.collect { state ->
                 applyWakeLockPolicy(state)
+                remoteMediaNotificationManager.update(
+                    state = state.remoteMediaState,
+                    connectedDeviceName = state.connectedEndpointName,
+                    shouldShow = state.connectionStage == ConnectionStage.CONNECTED &&
+                        state.featureSettings.mediaControl
+                )
                 if (isForegroundStarted) {
                     updateForegroundNotification(state)
                 }
@@ -106,6 +124,14 @@ class P2PTransferService : Service() {
                 controller.syncLocalClipboard(manual = true)
                 if (!controller.uiState.value.ecosystemEnabled) stopSelfResult(startId)
             }
+            RemoteMediaNotificationManager.ACTION_REMOTE_MEDIA_PLAY ->
+                controller.sendMediaControlCommand(MediaEventCategory.CMD_PLAY)
+            RemoteMediaNotificationManager.ACTION_REMOTE_MEDIA_PAUSE ->
+                controller.sendMediaControlCommand(MediaEventCategory.CMD_PAUSE)
+            RemoteMediaNotificationManager.ACTION_REMOTE_MEDIA_PREVIOUS ->
+                controller.sendMediaControlCommand(MediaEventCategory.CMD_PREV)
+            RemoteMediaNotificationManager.ACTION_REMOTE_MEDIA_NEXT ->
+                controller.sendMediaControlCommand(MediaEventCategory.CMD_NEXT)
             null -> if (controller.uiState.value.ecosystemEnabled) {
                 startForegroundSession()
                 controller.restoreContinuousEcosystemIfEnabled()
@@ -142,8 +168,18 @@ class P2PTransferService : Service() {
         controller.sendNotificationDismiss(notificationKey)
     }
 
-    fun sendMediaControlCommand(category: MediaEventCategory) {
-        controller.sendMediaControlCommand(category)
+    fun sendMediaControlCommand(
+        category: MediaEventCategory,
+        requestedVolume: Int = -1,
+        targetStream: AudioStreamKind = AudioStreamKind.AUDIO_STREAM_KIND_UNKNOWN,
+        requestedPositionMs: Long = -1L
+    ) {
+        controller.sendMediaControlCommand(
+            category,
+            requestedVolume,
+            targetStream,
+            requestedPositionMs
+        )
     }
 
     fun sendSmsTransmitOrder(address: String, text: String) {
@@ -283,6 +319,7 @@ class P2PTransferService : Service() {
             screenReceiverRegistered = false
         }
         releaseWakeLock()
+        remoteMediaNotificationManager.cancel()
         controller.close()
         serviceScope.cancel()
         super.onDestroy()

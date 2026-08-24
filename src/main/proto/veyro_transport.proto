@@ -1,0 +1,195 @@
+syntax = "proto3";
+
+package veyro.protocol;
+
+option java_package = "com.veyro.p2p.protocol";
+option java_multiple_files = true;
+option optimize_for = LITE_RUNTIME;
+option csharp_namespace = "Veyro.Protocol";
+
+// Transport metadata is deliberately separate from application messages.
+// encrypted_payload is opaque to a coordinator that is not a destination.
+message TransportEnvelope {
+  uint32 protocol_major = 1;
+  uint32 protocol_minor = 2;
+  string message_id = 3;
+  string origin_device_id = 4;
+  repeated string destination_device_ids = 5;
+  bool authorized_broadcast = 6;
+  TransportPayloadType payload_type = 7;
+  int64 created_at_unix_ms = 8;
+  int64 expires_at_unix_ms = 9;
+  uint32 remaining_hops = 10;
+  uint64 sequence_number = 11;
+  string acknowledges_message_id = 12;
+  bytes origin_authentication = 13;
+  bytes encrypted_payload = 14;
+}
+
+// Application payloads are encrypted independently for every selected
+// destination. A routing coordinator can inspect only envelope metadata.
+message EncryptedApplicationPayload {
+  bytes ephemeral_public_key_spki = 1;
+  repeated RecipientCiphertext recipients = 2;
+}
+
+message RecipientCiphertext {
+  string destination_device_id = 1;
+  bytes nonce = 2;
+  bytes ciphertext = 3;
+  bytes authentication_tag = 4;
+}
+
+enum TransportPayloadType {
+  PAYLOAD_UNSPECIFIED = 0;
+  APPLICATION_MESSAGE = 1;
+  CONTROL_MESSAGE = 2;
+  ACKNOWLEDGEMENT = 3;
+}
+
+message ProtocolHello {
+  string ephemeral_device_id = 1;
+  repeated ProtocolVersion supported_versions = 2;
+  repeated DeviceCapability capabilities = 3;
+  bool coordinator_eligible = 4;
+}
+
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+enum DeviceCapability {
+  CAPABILITY_UNSPECIFIED = 0;
+  BLE_CONTROL = 1;
+  WIFI_DIRECT_DATA = 2;
+  MULTI_DEVICE_ROUTING = 3;
+  FILE_TRANSFER = 4;
+  CLIPBOARD = 5;
+  LINKS = 6;
+  BATTERY_STATUS_CAPABILITY = 7;
+  CONNECTIVITY_STATUS_CAPABILITY = 8;
+  PING = 9;
+}
+
+message ProtocolRejection {
+  ProtocolRejectionReason reason = 1;
+  repeated ProtocolVersion supported_versions = 2;
+}
+
+// Small control messages exchanged through the Veyro BLE GATT characteristic.
+// Pairing PINs are never transmitted: both peers derive the same six digits
+// from their ephemeral ECDH exchange and compare them out of band.
+message BleControlPacket {
+  oneof body {
+    PairingHello pairing_hello = 1;
+    PairingConfirmation pairing_confirmation = 2;
+    ReconnectChallenge reconnect_challenge = 3;
+    ReconnectProof reconnect_proof = 4;
+    FastChannelOffer fast_channel_offer = 5;
+    FastChannelAnswer fast_channel_answer = 6;
+  }
+}
+
+message PairingHello {
+  string pairing_id = 1;
+  string device_id = 2;
+  string display_name = 3;
+  uint32 capabilities = 4;
+  int64 created_at_unix_ms = 5;
+  bytes nonce = 6;
+  bytes identity_public_key_spki = 7;
+  bytes ephemeral_public_key_spki = 8;
+  bytes signature = 9;
+}
+
+message PairingConfirmation {
+  string pairing_id = 1;
+  bool accepted = 2;
+  bytes verification_digest = 3;
+  bytes signature = 4;
+}
+
+message ReconnectChallenge {
+  string requesting_device_id = 1;
+  bytes challenge = 2;
+}
+
+message ReconnectProof {
+  string device_id = 1;
+  bytes challenge = 2;
+  bytes signature = 3;
+}
+
+enum FastChannelRole {
+  FAST_CHANNEL_ROLE_UNSPECIFIED = 0;
+  GROUP_OWNER = 1;
+  GROUP_CLIENT = 2;
+}
+
+// The IP address is deliberately absent. Each peer must use only the endpoint
+// supplied by the established Wi-Fi Direct link, never an address from the LAN.
+message FastChannelOffer {
+  string session_id = 1;
+  string device_id = 2;
+  FastChannelRole role = 3;
+  uint32 tcp_port = 4;
+  string tls_alpn = 5;
+  bytes resume_token = 6;
+  bytes signature = 7;
+}
+
+message FastChannelAnswer {
+  string session_id = 1;
+  bool accepted = 2;
+  string reason = 3;
+}
+
+message FastChannelPacket {
+  oneof body {
+    FastChannelHello hello = 1;
+    KeepAlive keep_alive = 2;
+    KeepAliveAcknowledgement keep_alive_acknowledgement = 3;
+    ResumeRequest resume_request = 4;
+    ResumeResponse resume_response = 5;
+    TransportEnvelope transport_envelope = 6;
+  }
+}
+
+message FastChannelHello {
+  string session_id = 1;
+  string device_id = 2;
+  uint32 protocol_major = 3;
+  uint32 protocol_minor = 4;
+}
+
+message KeepAlive {
+  uint64 sequence = 1;
+  int64 sent_at_unix_ms = 2;
+}
+
+message KeepAliveAcknowledgement {
+  uint64 sequence = 1;
+}
+
+message ResumeRequest {
+  string previous_session_id = 1;
+  uint64 last_received_sequence = 2;
+  bytes resume_token = 3;
+}
+
+message ResumeResponse {
+  string previous_session_id = 1;
+  bool accepted = 2;
+  uint64 resume_from_sequence = 3;
+}
+
+enum ProtocolRejectionReason {
+  REJECTION_UNSPECIFIED = 0;
+  UNSUPPORTED_VERSION = 1;
+  UNSUPPORTED_MESSAGE = 2;
+  MALFORMED_MESSAGE = 3;
+  UNAUTHORIZED = 4;
+  EXPIRED = 5;
+  HOP_LIMIT_EXCEEDED = 6;
+}

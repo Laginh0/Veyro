@@ -75,6 +75,7 @@ internal class DesktopBleController(
     private var activeSender: ((ByteArray) -> Unit)? = null
     private var reconnectChallenge: ByteArray? = null
     private var activeTrustedPeer: DesktopTrustedPeer? = null
+    private var reconnectOnly = false
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -124,6 +125,10 @@ internal class DesktopBleController(
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                val previousPeer = serverPeer
+                if (previousPeer != null && previousPeer.address != device.address) {
+                    runCatching { gattServer?.cancelConnection(previousPeer) }
+                }
                 serverPeer = device
                 listener.onDesktopBleStatus("Canal BLE recebido de um computador.")
             } else if (serverPeer?.address == device.address) {
@@ -189,6 +194,7 @@ internal class DesktopBleController(
                 listener.onDesktopBleStatus("Canal BLE com o Desktop encerrado.")
                 clientCharacteristic = null
                 clientGatt = null
+                reconnectOnly = false
                 gatt.close()
             }
         }
@@ -212,7 +218,7 @@ internal class DesktopBleController(
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (descriptor.uuid == DesktopInteropProtocol.clientConfigurationUuid && status == BluetoothGatt.GATT_SUCCESS) {
-                beginOutgoingPairing { sendClientPacket(it) }
+                beginOutgoingConnection { sendClientPacket(it) }
             }
         }
 
@@ -246,25 +252,36 @@ internal class DesktopBleController(
         val bluetoothAdapter = requireNotNull(adapter) { "Bluetooth indisponível neste aparelho" }
         check(bluetoothAdapter.isEnabled) { "Ative o Bluetooth para encontrar o Veyro Desktop" }
         started = true
-        openGattServer()
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
-        bluetoothAdapter.bluetoothLeScanner?.startScan(emptyList(), settings, scanCallback)
-            ?: error("Este aparelho não oferece varredura Bluetooth LE")
-        listener.onDesktopBleStatus("Procurando computadores Veyro por BLE.")
+        try {
+            openGattServer()
+            val settings = ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build()
+            bluetoothAdapter.bluetoothLeScanner?.startScan(emptyList(), settings, scanCallback)
+                ?: error("Este aparelho não oferece varredura Bluetooth LE")
+            listener.onDesktopBleStatus("Procurando computadores Veyro por BLE.")
+        } catch (error: Throwable) {
+            close()
+            throw error
+        }
     }
 
-    fun connect(peer: DiscoveredDesktopPeer) {
+    fun connect(peer: DiscoveredDesktopPeer, reconnectOnly: Boolean = false) {
         requireRuntimeSupport()
         val device = requireNotNull(adapter).getRemoteDevice(peer.address)
+        this.reconnectOnly = reconnectOnly
+        activeTrustedPeer = null
+        resetPairing(clearSender = true)
         clientGatt?.close()
         clientGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             device.connectGatt(appContext, false, clientCallback, BluetoothDevice.TRANSPORT_LE)
         } else {
             device.connectGatt(appContext, false, clientCallback)
         }
-        listener.onDesktopBleStatus("Conectando ao Veyro Desktop por BLE…")
+        listener.onDesktopBleStatus(
+            if (reconnectOnly) "Restaurando a confiança com o Veyro Desktop…"
+            else "Conectando ao Veyro Desktop por BLE…"
+        )
     }
 
     fun confirmPin(accepted: Boolean) {
@@ -299,18 +316,21 @@ internal class DesktopBleController(
         return revoked
     }
 
-    private fun beginOutgoingPairing(sender: (ByteArray) -> Unit) {
+    private fun beginOutgoingConnection(sender: (ByteArray) -> Unit) {
         resetPairing(clearSender = false)
         activeSender = sender
-        reconnectChallenge = ByteArray(32).also(secureRandom::nextBytes)
-        sender(encodeReconnectChallenge(reconnectChallenge!!))
-        pairingSession = DesktopPairingSession(
-            identity,
-            DesktopInteropProtocol.capabilityMask,
-            UUID.randomUUID().toString().replace("-", "")
-        )
-        sender(encodeHello(pairingSession!!.localHello))
-        listener.onDesktopBleStatus("Solicitação de pareamento enviada ao Desktop.")
+        if (reconnectOnly) {
+            sendReconnectChallenge(sender)
+            listener.onDesktopBleStatus("Prova de confiança solicitada ao Desktop.")
+        } else {
+            pairingSession = DesktopPairingSession(
+                identity,
+                DesktopInteropProtocol.capabilityMask,
+                UUID.randomUUID().toString().replace("-", "")
+            )
+            sender(encodeHello(pairingSession!!.localHello))
+            listener.onDesktopBleStatus("Solicitação de pareamento enviada ao Desktop; confirme o PIN.")
+        }
     }
 
     private fun processPacket(bytes: ByteArray, sender: (ByteArray) -> Unit) {
@@ -337,6 +357,9 @@ internal class DesktopBleController(
                         )
                         .build()
                     sender(BleControlPacket.newBuilder().setReconnectProof(proof).build().toByteArray())
+                    if (reconnectChallenge == null && trustStore.allActive().isNotEmpty()) {
+                        sendReconnectChallenge(sender)
+                    }
                 }
                 BleControlPacket.BodyCase.RECONNECT_PROOF -> processReconnectProof(packet.reconnectProof)
                 BleControlPacket.BodyCase.FAST_CHANNEL_OFFER -> listener.onDesktopFastChannelOffer(packet.fastChannelOffer)
@@ -356,8 +379,6 @@ internal class DesktopBleController(
                 DesktopInteropProtocol.capabilityMask,
                 remote.pairingId
             )
-            reconnectChallenge = ByteArray(32).also(secureRandom::nextBytes)
-            sender(encodeReconnectChallenge(reconnectChallenge!!))
         }
         val verification = checkNotNull(pairingSession).acceptRemoteHello(remote)
         if (shouldSendHello) sender(encodeHello(checkNotNull(pairingSession).localHello))
@@ -380,7 +401,8 @@ internal class DesktopBleController(
         val challenge = reconnectChallenge ?: error("Prova de reconexão sem desafio ativo")
         require(MessageDigest.isEqual(challenge, proof.challenge.toByteArray()))
         val trusted = trustStore.active(proof.deviceId) ?: run {
-            listener.onDesktopBleStatus("Desktop ainda não confiável; confirme o PIN.")
+            listener.onDesktopBleStatus("A reconexão foi recusada: faça um novo pareamento com PIN.")
+            if (reconnectOnly) clientGatt?.disconnect()
             return
         }
         require(
@@ -392,6 +414,9 @@ internal class DesktopBleController(
         ) { "Prova de reconexão inválida" }
         trustStore.markSeen(trusted.deviceId)
         activeTrustedPeer = trusted.copy(lastSeenAtMillis = System.currentTimeMillis())
+        reconnectOnly = false
+        reconnectChallenge?.fill(0)
+        reconnectChallenge = null
         listener.onDesktopTrusted(activeTrustedPeer!!)
         listener.onDesktopBleStatus("${trusted.displayName} autenticado novamente.")
     }
@@ -422,6 +447,12 @@ internal class DesktopBleController(
             )
             .build()
             .toByteArray()
+
+    private fun sendReconnectChallenge(sender: (ByteArray) -> Unit) {
+        reconnectChallenge?.fill(0)
+        reconnectChallenge = ByteArray(32).also(secureRandom::nextBytes)
+        sender(encodeReconnectChallenge(checkNotNull(reconnectChallenge)))
+    }
 
     private fun openGattServer() {
         val server = bluetoothManager.openGattServer(appContext, serverCallback)

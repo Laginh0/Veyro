@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -37,6 +38,7 @@ import com.veyro.p2p.desktopinterop.DesktopPairingVerification
 import com.veyro.p2p.desktopinterop.DesktopTrustedPeer
 import com.veyro.p2p.desktopinterop.DiscoveredDesktopPeer
 import com.veyro.p2p.protocol.BatteryStatus
+import com.veyro.p2p.protocol.AudioStreamKind
 import com.veyro.p2p.protocol.CustomCommandEvent
 import com.veyro.p2p.protocol.ConnectivityStatus
 import com.veyro.p2p.protocol.ClipboardSyncEvent
@@ -177,7 +179,29 @@ data class RemoteMediaState(
     val playbackStatus: Int,
     val trackName: String,
     val artistName: String,
-    val currentPositionMs: Long
+    val currentPositionMs: Long,
+    val durationMs: Long,
+    val artworkThumbnail: ByteArray,
+    val artworkMimeType: String,
+    val volumeLevel: Int,
+    val volumeMax: Int,
+    val audioStreams: List<RemoteAudioStreamVolume>,
+    val audioRoutes: List<RemoteAudioOutputRoute>
+)
+
+data class RemoteAudioStreamVolume(
+    val streamKind: AudioStreamKind,
+    val displayName: String,
+    val currentVolume: Int,
+    val maxVolume: Int,
+    val isMuted: Boolean
+)
+
+data class RemoteAudioOutputRoute(
+    val routeId: Int,
+    val displayName: String,
+    val routeType: String,
+    val isActive: Boolean
 )
 
 data class RemoteTelecommunicationEvent(
@@ -379,7 +403,7 @@ internal class NearbySessionController(
     )
     val uiState: StateFlow<NearbyClientUiState> = _uiState.asStateFlow()
 
-    private val desktopInterop by lazy {
+    private val desktopInterop: DesktopInteropManager by lazy {
         DesktopInteropManager(
             application = application,
             scope = controllerScope,
@@ -485,6 +509,21 @@ internal class NearbySessionController(
                     onBytesPayloadReceived(desktopEndpointId(peer.deviceId), bytes)
                 }
 
+                override fun onDesktopConnectionAttemptEnded(message: String) {
+                    _uiState.update { state ->
+                        if (state.connectionStage !in setOf(
+                                ConnectionStage.CONNECTING,
+                                ConnectionStage.AUTHENTICATING
+                            )
+                        ) state else state.copy(
+                            connectionStage = if (state.ecosystemEnabled) ConnectionStage.ACTIVE else ConnectionStage.IDLE,
+                            pendingConnection = null,
+                            statusMessage = "$message Toque no computador para tentar novamente.",
+                            errorMessage = null
+                        )
+                    }
+                }
+
                 override fun onDesktopStatus(message: String, error: Throwable?) {
                     _uiState.update {
                         it.copy(
@@ -504,6 +543,7 @@ internal class NearbySessionController(
     fun startContinuousEcosystem() {
         runCatching { desktopInterop.start() }
             .onFailure { error ->
+                Log.e("VeyroDesktopInterop", "Desktop interop initialization failed", error)
                 _uiState.update { it.copy(errorMessage = error.localizedMessage) }
             }
         val client = clientResult.getOrElse { error ->
@@ -1095,16 +1135,24 @@ internal class NearbySessionController(
                 findMyDeviceAlarm.stop()
             }
             _uiState.update { state ->
+                val desktopPairing = state.pendingConnection
+                    ?.takeIf { it.transport == EndpointTransport.DESKTOP }
                 state.copy(
-                    connectionStage = if (state.connectedEndpoints.isNotEmpty()) {
+                    connectionStage = if (desktopPairing != null) {
+                        ConnectionStage.AUTHENTICATING
+                    } else if (state.connectedEndpoints.isNotEmpty()) {
                         ConnectionStage.CONNECTED
                     } else if (state.ecosystemEnabled) {
                         ConnectionStage.ACTIVE
                     } else {
                         ConnectionStage.ERROR
                     },
-                    pendingConnection = null,
-                    statusMessage = "Conexão não concluída; nova tentativa será feita automaticamente.",
+                    pendingConnection = desktopPairing,
+                    statusMessage = if (desktopPairing != null) {
+                        "Confirme o PIN também no Veyro Desktop."
+                    } else {
+                        "Conexão não concluída; nova tentativa será feita automaticamente."
+                    },
                     errorMessage = null
                 )
             }
@@ -1247,7 +1295,12 @@ internal class NearbySessionController(
         )
     }
 
-    fun sendMediaControlCommand(category: MediaEventCategory) {
+    fun sendMediaControlCommand(
+        category: MediaEventCategory,
+        requestedVolume: Int = -1,
+        targetStream: AudioStreamKind = AudioStreamKind.AUDIO_STREAM_KIND_UNKNOWN,
+        requestedPositionMs: Long = -1L
+    ) {
         if (!_uiState.value.featureSettings.mediaControl) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
         if (category == MediaEventCategory.STATE_REPORT ||
@@ -1257,9 +1310,15 @@ internal class NearbySessionController(
             return
         }
 
-        val event = MediaControlEvent.newBuilder()
-            .setEventCategory(category)
-            .build()
+        val builder = MediaControlEvent.newBuilder().setEventCategory(category)
+        if (requestedVolume >= 0) builder.setRequestedVolume(requestedVolume)
+        if (targetStream != AudioStreamKind.AUDIO_STREAM_KIND_UNKNOWN &&
+            targetStream != AudioStreamKind.UNRECOGNIZED
+        ) {
+            builder.setTargetStream(targetStream)
+        }
+        if (requestedPositionMs >= 0L) builder.setRequestedPositionMs(requestedPositionMs)
+        val event = builder.build()
         sendFeaturePayload(
             endpointId = endpointId,
             bytes = VeyroProtocolCodec.encodeMediaControlEvent(event),
@@ -1818,15 +1877,23 @@ internal class NearbySessionController(
 
     private fun handleConnectionAttemptFailure(error: Throwable) {
         _uiState.update { state ->
+            val desktopPairing = state.pendingConnection
+                ?.takeIf { it.transport == EndpointTransport.DESKTOP }
             state.copy(
-                connectionStage = if (state.ecosystemEnabled) {
+                connectionStage = if (desktopPairing != null) {
+                    ConnectionStage.AUTHENTICATING
+                } else if (state.ecosystemEnabled) {
                     ConnectionStage.ACTIVE
                 } else {
                     ConnectionStage.ERROR
                 },
-                pendingConnection = null,
-                statusMessage = "Conexão adiada; o ecossistema continuará tentando.",
-                errorMessage = if (state.ecosystemEnabled) null else
+                pendingConnection = desktopPairing,
+                statusMessage = if (desktopPairing != null) {
+                    "Confirme o PIN também no Veyro Desktop."
+                } else {
+                    "Conexão adiada; o ecossistema continuará tentando."
+                },
+                errorMessage = if (desktopPairing != null || state.ecosystemEnabled) null else
                     (error.localizedMessage ?: "Não foi possível conectar.")
             )
         }
@@ -2178,11 +2245,44 @@ internal class NearbySessionController(
     private fun handleMediaControlEvent(endpointId: String, event: MediaControlEvent) {
         if (event.eventCategory == MediaEventCategory.STATE_REPORT) {
             if (_uiState.value.connectedEndpointId != endpointId) return
+            val previous = _uiState.value.remoteMediaState
+            val incomingArtwork = event.artworkThumbnail.toByteArray()
+            val artwork = if (incomingArtwork.isNotEmpty()) {
+                incomingArtwork
+            } else {
+                previous?.takeIf {
+                    it.trackName == event.trackName && it.artistName == event.artistName
+                }?.artworkThumbnail ?: ByteArray(0)
+            }
             val remoteState = RemoteMediaState(
                 playbackStatus = event.playbackStatus,
                 trackName = event.trackName,
                 artistName = event.artistName,
-                currentPositionMs = event.currentPositionMs.coerceAtLeast(0L)
+                currentPositionMs = event.currentPositionMs.coerceAtLeast(0L),
+                durationMs = event.durationMs.coerceAtLeast(0L),
+                artworkThumbnail = artwork,
+                artworkMimeType = event.artworkMimeType.ifBlank {
+                    previous?.artworkMimeType.orEmpty()
+                },
+                volumeLevel = event.volumeLevel.coerceAtLeast(0),
+                volumeMax = event.volumeMax.coerceAtLeast(1),
+                audioStreams = event.audioStreamVolumesList.map { stream ->
+                    RemoteAudioStreamVolume(
+                        streamKind = stream.streamKind,
+                        displayName = stream.displayName,
+                        currentVolume = stream.currentVolume.coerceAtLeast(0),
+                        maxVolume = stream.maxVolume.coerceAtLeast(1),
+                        isMuted = stream.isMuted
+                    )
+                },
+                audioRoutes = event.audioOutputRoutesList.map { route ->
+                    RemoteAudioOutputRoute(
+                        routeId = route.routeId,
+                        displayName = route.displayName,
+                        routeType = route.routeType,
+                        isActive = route.isActive
+                    )
+                }
             )
             _uiState.update {
                 it.copy(
@@ -2198,7 +2298,7 @@ internal class NearbySessionController(
             return
         }
 
-        mediaSessionCoordinator.execute(event.eventCategory)
+        mediaSessionCoordinator.execute(event)
             .onSuccess {
                 _uiState.update {
                     it.copy(
@@ -3035,8 +3135,20 @@ class NearbyViewModel(application: Application) : AndroidViewModel(application) 
         withService { it.sendNotificationDismiss(notificationKey) }
     }
 
-    fun sendMediaControlCommand(category: MediaEventCategory) {
-        withService { it.sendMediaControlCommand(category) }
+    fun sendMediaControlCommand(
+        category: MediaEventCategory,
+        requestedVolume: Int = -1,
+        targetStream: AudioStreamKind = AudioStreamKind.AUDIO_STREAM_KIND_UNKNOWN,
+        requestedPositionMs: Long = -1L
+    ) {
+        withService {
+            it.sendMediaControlCommand(
+                category,
+                requestedVolume,
+                targetStream,
+                requestedPositionMs
+            )
+        }
     }
 
     fun sendSmsTransmitOrder(address: String, text: String) {

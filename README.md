@@ -2,9 +2,11 @@
 
 Veyro is a peer-to-peer ecosystem that connects nearby devices directly, without requiring a central cloud service to transport data. Every device can discover, receive, and send information through the same interface, with no fixed sender or receiver role.
 
-> Current status: **Alpha 0.1.9 development**. This version adds interoperability with the Veyro Desktop transport and is intended for testing.
+> Current status: **Alpha 0.1.10**. This version introduces dedicated full-screen feature pages, redesigned remote media controls, synchronized artwork and playback progress, remote media notifications, and per-stream audio controls.
 
-This folder is the standalone Android project. Shared Protobuf contracts are read from `../protocol/`.
+> Debug builds expose disconnected feature previews for interface validation. Pairing still requires bilateral PIN confirmation, and Release builds do not include the disconnected preview mode.
+
+This repository contains the standalone Android project. The Mobile protocol contracts are bundled under `src/main/proto/` so the project builds independently.
 
 ## Key features
 
@@ -24,7 +26,7 @@ This folder is the standalone Android project. Shared Protobuf contracts are rea
 | Drawing tablet | Transmits stylus identity, normalized position, pressure, tilt, and primary-button state. |
 | Shared remote folder | Exposes only a directory explicitly selected through Android's Storage Access Framework and keeps all other storage inaccessible. |
 | Notification sync | Shares authorized notifications and supports remote dismissal. |
-| Media control | Synchronizes playback state and sends media commands. |
+| Media control | Synchronizes artwork, title, artist, playback position, duration and volume; provides seeking, remote media notifications, output-route visibility, and per-stream audio controls. |
 | Find my device | Starts and stops an audible alarm on the connected device. |
 | Calls and SMS | Synchronizes call state and requires local confirmation before sending a remote SMS. |
 | Link sharing | Sends web addresses for user-approved opening on another device. |
@@ -76,6 +78,7 @@ During a file transfer, Veyro temporarily adds the Android data synchronization 
 - The accessibility service does not transmit screen contents.
 - Android-to-Android communication continues to travel directly through Nearby Connections.
 - Android-to-Windows communication uses BLE/GATT for discovery and pairing, then Wi-Fi Direct and mutual TLS for the fast channel. It does not require a router or local Wi-Fi network. See [`docs/DESKTOP_INTEROPERABILITY.md`](docs/DESKTOP_INTEROPERABILITY.md).
+- Wi-Fi Direct recovery resets only the P2P group. Veyro never disables, disconnects, or denies the device's normal Wi-Fi connection.
 
 ## Permissions
 
@@ -137,7 +140,7 @@ The project includes:
 ## Project structure
 
 ```text
-mobile/
+./
 ├── src/main/java/com/veyro/p2p/  Android application code
 ├── src/main/res/                 Android resources
 ├── src/test/                     Unit tests
@@ -153,7 +156,7 @@ Veyro is an independent project with its own interface, architecture, and roadma
 
 ## Current release
 
-The latest published test build remains [Veyro Alpha 0.1.8](https://github.com/Laginh0/Veyro/releases/tag/v0.1.8-alpha). The local `0.1.9-alpha` source adds Veyro Desktop interoperability and has not been published.
+The latest published test build is [Veyro Alpha 0.1.10](https://github.com/Laginh0/Veyro/releases/tag/v0.1.10-alpha). It keeps bilateral PIN confirmation enabled, presents every feature on its own full-screen page, and expands media continuity with synchronized metadata, artwork, progress, notification controls, output routes, and individual Android audio-stream volumes.
 
 Alpha APKs use a development signing key. Confirm that an existing installation uses the same key before attempting an update.
 

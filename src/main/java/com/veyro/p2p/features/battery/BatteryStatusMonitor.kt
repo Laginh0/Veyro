@@ -20,16 +20,20 @@ class BatteryStatusMonitor(context: Context) {
 
     @OptIn(FlowPreview::class)
     fun statusUpdates(): Flow<BatteryStatus> = callbackFlow {
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 intent?.toBatteryStatus()?.let { trySend(it) }
             }
         }
 
+        appContext.registerReceiver(null, filter)
+            ?.toBatteryStatus()
+            ?.let { trySend(it) }
         ContextCompat.registerReceiver(
             appContext,
             receiver,
-            IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+            filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         awaitClose { appContext.unregisterReceiver(receiver) }

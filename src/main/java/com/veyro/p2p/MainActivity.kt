@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.media.session.PlaybackState
 import android.graphics.drawable.Icon
 import android.os.Build
@@ -36,6 +37,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -58,16 +60,43 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.CellWifi
+import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.InsertLink
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Slideshow
+import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -85,6 +114,7 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -108,6 +138,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -138,6 +171,8 @@ import com.veyro.p2p.nearby.RemoteConnectivityStatus
 import com.veyro.p2p.nearby.RemotePingStatus
 import com.veyro.p2p.nearby.RemoteNotification
 import com.veyro.p2p.nearby.RemoteMediaState
+import com.veyro.p2p.nearby.RemoteAudioStreamVolume
+import com.veyro.p2p.nearby.RemoteAudioOutputRoute
 import com.veyro.p2p.nearby.RemoteTelecommunicationEvent
 import com.veyro.p2p.nearby.RemoteCustomCommandResult
 import com.veyro.p2p.nearby.RemoteSharedUrl
@@ -150,6 +185,7 @@ import com.veyro.p2p.features.remoteinput.VeyroAccessibilityService
 import com.veyro.p2p.permissions.OptionalFeatureAccess
 import com.veyro.p2p.permissions.PermissionManager
 import com.veyro.p2p.protocol.MediaEventCategory
+import com.veyro.p2p.protocol.AudioStreamKind
 import com.veyro.p2p.protocol.TelecommunicationType
 import com.veyro.p2p.protocol.RemoteInputCommand
 import com.veyro.p2p.protocol.PresentationAction
@@ -164,6 +200,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -187,6 +224,38 @@ private data class PendingFeatureActivation(
     val settings: FeatureSettings,
     val access: OptionalFeatureAccess
 )
+
+private data class FeatureHubItem(
+    val key: String,
+    val title: String,
+    val icon: ImageVector
+)
+
+private data class MediaControlRequest(
+    val category: MediaEventCategory,
+    val requestedVolume: Int = -1,
+    val targetStream: AudioStreamKind = AudioStreamKind.AUDIO_STREAM_KIND_UNKNOWN,
+    val requestedPositionMs: Long = -1L
+)
+
+private fun featureHubTitle(key: String?): String = when (key) {
+    "files" -> "Enviar arquivos"
+    "clipboard" -> "Área de transferência"
+    "presentation" -> "Controle de apresentação"
+    "media" -> "Controle multimídia"
+    "remote_input" -> "Mouse e teclado"
+    "commands" -> "Executar comando"
+    "battery" -> "Estado da bateria"
+    "connectivity" -> "Conectividade e ping"
+    "find" -> "Encontrar aparelho"
+    "notifications" -> "Notificações"
+    "telephony" -> "Chamadas e SMS"
+    "links" -> "Compartilhar link"
+    "contacts" -> "Sincronizar contatos"
+    "tablet" -> "Mesa digitalizadora"
+    "remote_files" -> "Arquivos remotos"
+    else -> "Recurso"
+}
 
 class MainActivity : ComponentActivity() {
     private val nearbyViewModel: NearbyViewModel by viewModels()
@@ -357,7 +426,14 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onDismissRemoteNotification = nearbyViewModel::dismissRemoteNotification,
-                onMediaControlCommand = nearbyViewModel::sendMediaControlCommand,
+                onMediaControlCommand = { request ->
+                    nearbyViewModel.sendMediaControlCommand(
+                        category = request.category,
+                        requestedVolume = request.requestedVolume,
+                        targetStream = request.targetStream,
+                        requestedPositionMs = request.requestedPositionMs
+                    )
+                },
                 onSendSmsTransmitOrder = nearbyViewModel::sendSmsTransmitOrder,
                 onSendSafeCustomCommand = nearbyViewModel::sendSafeCustomCommand,
                 onShareUrl = nearbyViewModel::shareUrl,
@@ -543,7 +619,7 @@ private fun VeyroApp(
     onOpenNotificationListenerSettings: () -> Unit,
     onOpenNotificationPolicySettings: () -> Unit,
     onDismissRemoteNotification: (String) -> Unit,
-    onMediaControlCommand: (MediaEventCategory) -> Unit,
+    onMediaControlCommand: (MediaControlRequest) -> Unit,
     onSendSmsTransmitOrder: (String, String) -> Unit,
     onSendSafeCustomCommand: (String) -> Unit,
     onShareUrl: (String) -> Unit,
@@ -668,7 +744,7 @@ private fun VeyroScreen(
     onOpenNotificationListenerSettings: () -> Unit,
     onOpenNotificationPolicySettings: () -> Unit,
     onDismissRemoteNotification: (String) -> Unit,
-    onMediaControlCommand: (MediaEventCategory) -> Unit,
+    onMediaControlCommand: (MediaControlRequest) -> Unit,
     onSendSmsTransmitOrder: (String, String) -> Unit,
     onSendSafeCustomCommand: (String) -> Unit,
     onShareUrl: (String) -> Unit,
@@ -694,6 +770,7 @@ private fun VeyroScreen(
     var selectedDestinationOrdinal by rememberSaveable {
         mutableStateOf(VeyroDestination.ECOSYSTEM.ordinal)
     }
+    var selectedResourceKey by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedDestination = VeyroDestination.entries[selectedDestinationOrdinal]
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -741,7 +818,9 @@ private fun VeyroScreen(
                     onSetAppLanguage = onSetAppLanguage,
                     onSetFeatureSettings = onSetFeatureSettings,
                     extendedFeatureActions = extendedFeatureActions,
-                    onStopSession = onStopSession
+                    onStopSession = onStopSession,
+                    selectedFeatureKey = selectedResourceKey,
+                    onSelectedFeatureChange = { selectedResourceKey = it }
                 )
             }
         } else {
@@ -768,10 +847,12 @@ private fun VeyroScreen(
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.surface,
                     bottomBar = {
-                        VeyroNavigationBar(
-                            selected = selectedDestination,
-                            onSelected = { selectedDestinationOrdinal = it.ordinal }
-                        )
+                        if (selectedResourceKey == null) {
+                            VeyroNavigationBar(
+                                selected = selectedDestination,
+                                onSelected = { selectedDestinationOrdinal = it.ordinal }
+                            )
+                        }
                     }
                 ) { innerPadding ->
                     Box(
@@ -782,8 +863,8 @@ private fun VeyroScreen(
                     ) {
                         VeyroDestinationContent(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(top = 56.dp),
+                            .fillMaxSize()
+                            .padding(top = if (selectedResourceKey == null) 56.dp else 0.dp),
                             destination = selectedDestination,
                             nearbyUiState = nearbyUiState,
                             onStartAdvertising = onStartAdvertising,
@@ -819,12 +900,16 @@ private fun VeyroScreen(
                             onSetAppLanguage = onSetAppLanguage,
                             onSetFeatureSettings = onSetFeatureSettings,
                             extendedFeatureActions = extendedFeatureActions,
-                            onStopSession = onStopSession
+                            onStopSession = onStopSession,
+                            selectedFeatureKey = selectedResourceKey,
+                            onSelectedFeatureChange = { selectedResourceKey = it }
                         )
-                        VeyroCompactTopBar(
-                            modifier = Modifier.align(Alignment.TopStart),
-                            onOpenDrawer = { drawerScope.launch { drawerState.open() } }
-                        )
+                        if (selectedResourceKey == null) {
+                            VeyroCompactTopBar(
+                                modifier = Modifier.align(Alignment.TopStart),
+                                onOpenDrawer = { drawerScope.launch { drawerState.open() } }
+                            )
+                        }
                     }
                 }
             }
@@ -1077,7 +1162,7 @@ private fun VeyroDestinationContent(
     onOpenNotificationListenerSettings: () -> Unit,
     onOpenNotificationPolicySettings: () -> Unit,
     onDismissRemoteNotification: (String) -> Unit,
-    onMediaControlCommand: (MediaEventCategory) -> Unit,
+    onMediaControlCommand: (MediaControlRequest) -> Unit,
     onSendSmsTransmitOrder: (String, String) -> Unit,
     onSendSafeCustomCommand: (String) -> Unit,
     onShareUrl: (String) -> Unit,
@@ -1091,7 +1176,9 @@ private fun VeyroDestinationContent(
     onSetAppLanguage: (AppLanguage) -> Unit,
     onSetFeatureSettings: (FeatureSettings) -> Unit,
     extendedFeatureActions: ExtendedFeatureActions,
-    onStopSession: () -> Unit
+    onStopSession: () -> Unit,
+    selectedFeatureKey: String?,
+    onSelectedFeatureChange: (String?) -> Unit
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
         when (destination) {
@@ -1125,7 +1212,9 @@ private fun VeyroDestinationContent(
                 onApproveIncomingFile = onApproveIncomingFile,
                 onRejectIncomingFile = onRejectIncomingFile,
                 extendedFeatureActions = extendedFeatureActions,
-                onStopSession = onStopSession
+                onStopSession = onStopSession,
+                selectedFeatureKey = selectedFeatureKey,
+                onSelectedFeatureChange = onSelectedFeatureChange
             )
 
             VeyroDestination.SETTINGS -> SettingsPage(
@@ -1253,7 +1342,7 @@ private fun ResourcesPage(
     onOpenNotificationListenerSettings: () -> Unit,
     onOpenNotificationPolicySettings: () -> Unit,
     onDismissRemoteNotification: (String) -> Unit,
-    onMediaControlCommand: (MediaEventCategory) -> Unit,
+    onMediaControlCommand: (MediaControlRequest) -> Unit,
     onSendSmsTransmitOrder: (String, String) -> Unit,
     onSendSafeCustomCommand: (String) -> Unit,
     onShareUrl: (String) -> Unit,
@@ -1262,13 +1351,101 @@ private fun ResourcesPage(
     onApproveIncomingFile: (Long) -> Unit,
     onRejectIncomingFile: (Long) -> Unit,
     extendedFeatureActions: ExtendedFeatureActions,
-    onStopSession: () -> Unit
+    onStopSession: () -> Unit,
+    selectedFeatureKey: String?,
+    onSelectedFeatureChange: (String?) -> Unit
 ) {
+    val debugPreview = BuildConfig.DEBUG &&
+        uiState.connectionStage != ConnectionStage.CONNECTED
+
+    if (selectedFeatureKey != null) {
+        FeaturePageScaffold(
+            title = featureHubTitle(selectedFeatureKey),
+            scrollable = selectedFeatureKey != "media",
+            onBack = { onSelectedFeatureChange(null) }
+        ) {
+            if (uiState.connectionStage == ConnectionStage.CONNECTED) {
+                SessionControls(
+                    uiState = uiState,
+                    onStartAdvertising = onStartAdvertising,
+                    onStartDiscovery = onStartDiscovery,
+                    onRequestConnection = onRequestConnection,
+                    onSendCommand = onSendCommand,
+                    onStartRemoteFindAlarm = onStartRemoteFindAlarm,
+                    onStopRemoteFindAlarm = onStopRemoteFindAlarm,
+                    notificationListenerGranted = notificationListenerGranted,
+                    notificationPolicyGranted = notificationPolicyGranted,
+                    onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
+                    onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
+                    onDismissRemoteNotification = onDismissRemoteNotification,
+                    onMediaControlCommand = onMediaControlCommand,
+                    onSendSmsTransmitOrder = onSendSmsTransmitOrder,
+                    onSendSafeCustomCommand = onSendSafeCustomCommand,
+                    onShareUrl = onShareUrl,
+                    onRemoteInput = onRemoteInput,
+                    onPickFile = onPickFile,
+                    onApproveIncomingFile = onApproveIncomingFile,
+                    onRejectIncomingFile = onRejectIncomingFile,
+                    extendedFeatureActions = extendedFeatureActions,
+                    onStopSession = onStopSession,
+                    selectedFeatureKey = selectedFeatureKey,
+                    onSelectedFeatureChange = onSelectedFeatureChange
+                )
+            } else if (debugPreview) {
+                FeatureHub(
+                    uiState = uiState,
+                    onSendCommand = {},
+                    onStartRemoteFindAlarm = {},
+                    onStopRemoteFindAlarm = {},
+                    notificationListenerGranted = notificationListenerGranted,
+                    notificationPolicyGranted = notificationPolicyGranted,
+                    onOpenNotificationListenerSettings = {},
+                    onOpenNotificationPolicySettings = {},
+                    onDismissRemoteNotification = {},
+                    onMediaControlCommand = {},
+                    onSendSmsTransmitOrder = { _, _ -> },
+                    onSendSafeCustomCommand = {},
+                    onShareUrl = {},
+                    onRemoteInput = { _, _, _, _ -> },
+                    onPickFile = {},
+                    onApproveIncomingFile = {},
+                    onRejectIncomingFile = {},
+                    extendedFeatureActions = extendedFeatureActions.copy(
+                        onSelectConnectedEndpoint = {},
+                        onPickContact = {},
+                        onApproveContact = {},
+                        onRejectContact = {},
+                        onPresentationAction = { _, _ -> },
+                        onDismissRemoteBlackout = {},
+                        onStylusEvent = { _, _, _, _, _, _, _, _ -> },
+                        onChooseSharedFolder = {},
+                        onClearSharedFolder = {},
+                        onRequestRemoteFileList = {},
+                        onRequestRemoteFileDownload = {},
+                        onSyncClipboard = {},
+                        onRequestClipboardTile = {}
+                    ),
+                    onStopSession = {},
+                    previewMode = true,
+                    selectedKey = selectedFeatureKey,
+                    onSelectedKeyChange = onSelectedFeatureChange
+                )
+            }
+        }
+        return
+    }
+
     VeyroPage {
         PageHeader(
             eyebrow = "RECURSOS",
-            title = "Ações conectadas",
-            subtitle = "Arquivos, mídia, comandos e continuidade entre aparelhos."
+            title = uiState.connectedEndpointName
+                ?.removePrefix("Veyro - ")
+                ?: "Ações conectadas",
+            subtitle = if (uiState.connectionStage == ConnectionStage.CONNECTED) {
+                "Escolha uma função para começar."
+            } else {
+                "Arquivos, mídia, comandos e continuidade entre aparelhos."
+            }
         )
         if (uiState.connectionStage == ConnectionStage.CONNECTED) {
             SessionControls(
@@ -1293,9 +1470,74 @@ private fun ResourcesPage(
                 onApproveIncomingFile = onApproveIncomingFile,
                 onRejectIncomingFile = onRejectIncomingFile,
                 extendedFeatureActions = extendedFeatureActions,
-                onStopSession = onStopSession
+                onStopSession = onStopSession,
+                selectedFeatureKey = selectedFeatureKey,
+                onSelectedFeatureChange = onSelectedFeatureChange
             )
-        } else {
+        } else if (debugPreview) {
+            if (selectedFeatureKey == null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text(
+                            text = "PRÉ-VISUALIZAÇÃO DEBUG",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Todas as telas estão disponíveis para revisão. Os comandos ficam desativados até existir uma conexão.",
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            FeatureHub(
+                uiState = uiState,
+                onSendCommand = {},
+                onStartRemoteFindAlarm = {},
+                onStopRemoteFindAlarm = {},
+                notificationListenerGranted = notificationListenerGranted,
+                notificationPolicyGranted = notificationPolicyGranted,
+                onOpenNotificationListenerSettings = {},
+                onOpenNotificationPolicySettings = {},
+                onDismissRemoteNotification = {},
+                onMediaControlCommand = {},
+                onSendSmsTransmitOrder = { _, _ -> },
+                onSendSafeCustomCommand = {},
+                onShareUrl = {},
+                onRemoteInput = { _, _, _, _ -> },
+                onPickFile = {},
+                onApproveIncomingFile = {},
+                onRejectIncomingFile = {},
+                extendedFeatureActions = extendedFeatureActions.copy(
+                    onSelectConnectedEndpoint = {},
+                    onPickContact = {},
+                    onApproveContact = {},
+                    onRejectContact = {},
+                    onPresentationAction = { _, _ -> },
+                    onDismissRemoteBlackout = {},
+                    onStylusEvent = { _, _, _, _, _, _, _, _ -> },
+                    onChooseSharedFolder = {},
+                    onClearSharedFolder = {},
+                    onRequestRemoteFileList = {},
+                    onRequestRemoteFileDownload = {},
+                    onSyncClipboard = {},
+                    onRequestClipboardTile = {}
+                ),
+                onStopSession = {},
+                previewMode = true,
+                selectedKey = selectedFeatureKey,
+                onSelectedKeyChange = onSelectedFeatureChange
+            )
+        } else if (selectedFeatureKey == null) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(28.dp),
@@ -1318,6 +1560,49 @@ private fun ResourcesPage(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FeaturePageScaffold(
+    title: String,
+    scrollable: Boolean = true,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 68.dp)
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Voltar")
+                }
+                Spacer(modifier = Modifier.size(12.dp))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            val pageContentModifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(start = 20.dp, top = 2.dp, end = 20.dp, bottom = 16.dp)
+                .let { modifier ->
+                    if (scrollable) modifier.verticalScroll(rememberScrollState()) else modifier
+                }
+            Column(
+                modifier = pageContentModifier,
+                content = content
+            )
         }
     }
 }
@@ -2400,7 +2685,7 @@ private fun SessionControls(
     onOpenNotificationListenerSettings: () -> Unit,
     onOpenNotificationPolicySettings: () -> Unit,
     onDismissRemoteNotification: (String) -> Unit,
-    onMediaControlCommand: (MediaEventCategory) -> Unit,
+    onMediaControlCommand: (MediaControlRequest) -> Unit,
     onSendSmsTransmitOrder: (String, String) -> Unit,
     onSendSafeCustomCommand: (String) -> Unit,
     onShareUrl: (String) -> Unit,
@@ -2409,7 +2694,9 @@ private fun SessionControls(
     onApproveIncomingFile: (Long) -> Unit,
     onRejectIncomingFile: (Long) -> Unit,
     extendedFeatureActions: ExtendedFeatureActions,
-    onStopSession: () -> Unit
+    onStopSession: () -> Unit,
+    selectedFeatureKey: String?,
+    onSelectedFeatureChange: (String?) -> Unit
 ) {
     when (uiState.connectionStage) {
         ConnectionStage.IDLE,
@@ -2491,143 +2778,227 @@ private fun SessionControls(
         )
 
         ConnectionStage.CONNECTED -> {
-            OperationCard(
-                title = "Conectado a ${uiState.connectedEndpointName ?: "outro aparelho"}",
-                message = uiState.statusMessage ?: "Canal P2P pronto.",
-                stateName = uiState.connectionStage.name,
-                stopButtonLabel = "Desconectar",
-                onStopSession = onStopSession
-            )
-            if (uiState.connectedEndpoints.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
+            if (uiState.connectedEndpoints.size > 1) {
                 ConnectedEndpointSelector(
                     uiState = uiState,
                     onSelect = extendedFeatureActions.onSelectConnectedEndpoint
                 )
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            val features = uiState.featureSettings
-            if (features.batterySync) {
-                Spacer(modifier = Modifier.height(12.dp))
-                BatteryStatusCard(status = uiState.remoteBatteryStatus)
+            FeatureHub(
+                uiState = uiState,
+                onSendCommand = onSendCommand,
+                onStartRemoteFindAlarm = onStartRemoteFindAlarm,
+                onStopRemoteFindAlarm = onStopRemoteFindAlarm,
+                notificationListenerGranted = notificationListenerGranted,
+                notificationPolicyGranted = notificationPolicyGranted,
+                onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
+                onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
+                onDismissRemoteNotification = onDismissRemoteNotification,
+                onMediaControlCommand = onMediaControlCommand,
+                onSendSmsTransmitOrder = onSendSmsTransmitOrder,
+                onSendSafeCustomCommand = onSendSafeCustomCommand,
+                onShareUrl = onShareUrl,
+                onRemoteInput = onRemoteInput,
+                onPickFile = onPickFile,
+                onApproveIncomingFile = onApproveIncomingFile,
+                onRejectIncomingFile = onRejectIncomingFile,
+                extendedFeatureActions = extendedFeatureActions,
+                onStopSession = onStopSession,
+                selectedKey = selectedFeatureKey,
+                onSelectedKeyChange = onSelectedFeatureChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeatureHub(
+    uiState: NearbyClientUiState,
+    onSendCommand: (String) -> Unit,
+    onStartRemoteFindAlarm: () -> Unit,
+    onStopRemoteFindAlarm: () -> Unit,
+    notificationListenerGranted: Boolean,
+    notificationPolicyGranted: Boolean,
+    onOpenNotificationListenerSettings: () -> Unit,
+    onOpenNotificationPolicySettings: () -> Unit,
+    onDismissRemoteNotification: (String) -> Unit,
+    onMediaControlCommand: (MediaControlRequest) -> Unit,
+    onSendSmsTransmitOrder: (String, String) -> Unit,
+    onSendSafeCustomCommand: (String) -> Unit,
+    onShareUrl: (String) -> Unit,
+    onRemoteInput: (RemoteInputCommand, Float, Float, String) -> Unit,
+    onPickFile: () -> Unit,
+    onApproveIncomingFile: (Long) -> Unit,
+    onRejectIncomingFile: (Long) -> Unit,
+    extendedFeatureActions: ExtendedFeatureActions,
+    onStopSession: () -> Unit,
+    previewMode: Boolean = false,
+    selectedKey: String?,
+    onSelectedKeyChange: (String?) -> Unit
+) {
+    val features = uiState.featureSettings
+    val items = buildList {
+        if (features.fileTransfer || previewMode) add(FeatureHubItem("files", "Enviar arquivos", Icons.Default.Description))
+        if (features.clipboardSync || previewMode) add(FeatureHubItem("clipboard", "Área de transferência", Icons.Default.ContentPaste))
+        if (features.presentationMode || previewMode) add(FeatureHubItem("presentation", "Controle de apresentação", Icons.Default.Slideshow))
+        if (features.mediaControl || previewMode) add(FeatureHubItem("media", "Controle multimídia", Icons.Default.PlayCircle))
+        if (features.remoteInput || previewMode) add(FeatureHubItem("remote_input", "Mouse e teclado", Icons.Default.Keyboard))
+        if (features.safeCommands || previewMode) add(FeatureHubItem("commands", "Executar comando", Icons.Default.Terminal))
+        if (features.batterySync || previewMode) add(FeatureHubItem("battery", "Estado da bateria", Icons.Default.BatteryChargingFull))
+        if (features.connectivitySync || features.ping || previewMode) add(FeatureHubItem("connectivity", "Conectividade e ping", Icons.Default.CellWifi))
+        if (features.findDevice || previewMode) add(FeatureHubItem("find", "Encontrar aparelho", Icons.Default.MyLocation))
+        if (features.notificationSync || previewMode) add(FeatureHubItem("notifications", "Notificações", Icons.Default.Notifications))
+        if (features.telephonySync || previewMode) add(FeatureHubItem("telephony", "Chamadas e SMS", Icons.Default.Sms))
+        if (features.sharedLinks || previewMode) add(FeatureHubItem("links", "Compartilhar link", Icons.Default.InsertLink))
+        if (features.contactSync || previewMode) add(FeatureHubItem("contacts", "Sincronizar contatos", Icons.Default.Contacts))
+        if (features.drawingTablet || previewMode) add(FeatureHubItem("tablet", "Mesa digitalizadora", Icons.Default.Draw))
+        if (features.remoteFiles || previewMode) add(FeatureHubItem("remote_files", "Arquivos remotos", Icons.Default.Folder))
+    }
+    LaunchedEffect(items.map(FeatureHubItem::key), selectedKey) {
+        if (selectedKey != null && selectedKey !in items.map(FeatureHubItem::key)) {
+            onSelectedKeyChange(null)
+        }
+    }
+
+    if (selectedKey == null) {
+        items.chunked(2).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowItems.forEach { item ->
+                    FeatureHubButton(
+                        item = item,
+                        selected = false,
+                        onClick = { onSelectedKeyChange(item.key) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowItems.size == 1) Spacer(modifier = Modifier.weight(1f))
             }
-            if (features.connectivitySync || features.ping) {
-                Spacer(modifier = Modifier.height(12.dp))
-                ConnectivityStatusCard(
-                    status = uiState.remoteConnectivityStatus,
-                    ping = uiState.remotePingStatus,
-                    showConnectivity = features.connectivitySync,
-                    showPing = features.ping
-                )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        if (!previewMode) {
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onStopSession
+            ) { Text("Desconectar") }
+        }
+        return
+    }
+
+    val key = selectedKey ?: return
+    when (key) {
+                    "files" -> RawFilePanel(
+                        transfers = uiState.rawFileTransfers,
+                        onPickFile = onPickFile,
+                        onApproveIncomingFile = onApproveIncomingFile,
+                        onRejectIncomingFile = onRejectIncomingFile
+                    )
+                    "clipboard" -> ClipboardSyncPanel(
+                        status = uiState.clipboardStatus,
+                        onSync = extendedFeatureActions.onSyncClipboard,
+                        onAddQuickSettingsTile = extendedFeatureActions.onRequestClipboardTile
+                    )
+                    "presentation" -> PresentationPanel(
+                        remoteState = uiState.remotePresentationState,
+                        onMediaCommand = onMediaControlCommand,
+                        onPresentationAction = extendedFeatureActions.onPresentationAction
+                    )
+                    "media" -> MediaControlPanel(uiState.remoteMediaState, onMediaControlCommand)
+                    "remote_input" -> RemoteInputPanel(onRemoteInput)
+                    "commands" -> {
+                        SafeCustomCommandsPanel(uiState.remoteCustomCommandResults, onSendSafeCustomCommand)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        CommandPanel(uiState.receivedCommands, onSendCommand)
+                    }
+                    "battery" -> BatteryStatusCard(uiState.remoteBatteryStatus)
+                    "connectivity" -> ConnectivityStatusCard(
+                        status = uiState.remoteConnectivityStatus,
+                        ping = uiState.remotePingStatus,
+                        showConnectivity = features.connectivitySync || previewMode,
+                        showPing = features.ping || previewMode
+                    )
+                    "find" -> FindMyDevicePanel(
+                        notificationPolicyGranted = notificationPolicyGranted,
+                        onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
+                        onStartRemoteAlarm = onStartRemoteFindAlarm,
+                        onStopRemoteAlarm = onStopRemoteFindAlarm
+                    )
+                    "notifications" -> NotificationSyncPanel(
+                        notificationListenerGranted = notificationListenerGranted,
+                        notifications = uiState.remoteNotifications,
+                        onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
+                        onDismissNotification = onDismissRemoteNotification
+                    )
+                    "telephony" -> TelephonyPanel(uiState.remoteTelecommunicationEvents, onSendSmsTransmitOrder)
+                    "links" -> ShareUrlPanel(uiState.remoteSharedUrls, onShareUrl)
+                    "contacts" -> ContactSyncPanel(
+                        pendingImports = uiState.pendingContactImports,
+                        lastResult = uiState.lastContactResult,
+                        onPickContact = extendedFeatureActions.onPickContact,
+                        onApprove = extendedFeatureActions.onApproveContact,
+                        onReject = extendedFeatureActions.onRejectContact
+                    )
+                    "tablet" -> DrawingTabletPanel(extendedFeatureActions.onStylusEvent)
+                    "remote_files" -> RemoteFilesPanel(
+                        sharedFolderName = uiState.sharedFolderName,
+                        remoteItems = uiState.remoteFileItems,
+                        remoteParentId = uiState.remoteFileParentId,
+                        remoteMessage = uiState.remoteFileMessage,
+                        onChooseSharedFolder = extendedFeatureActions.onChooseSharedFolder,
+                        onClearSharedFolder = extendedFeatureActions.onClearSharedFolder,
+                        onRequestList = extendedFeatureActions.onRequestRemoteFileList,
+                        onRequestDownload = extendedFeatureActions.onRequestRemoteFileDownload
+                    )
+    }
+    Spacer(modifier = Modifier.height(12.dp))
+}
+
+@Composable
+private fun FeatureHubButton(
+    item: FeatureHubItem,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .heightIn(min = 132.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
             }
-            if (features.findDevice) {
-                Spacer(modifier = Modifier.height(12.dp))
-                FindMyDevicePanel(
-                    notificationPolicyGranted = notificationPolicyGranted,
-                    onOpenNotificationPolicySettings = onOpenNotificationPolicySettings,
-                    onStartRemoteAlarm = onStartRemoteFindAlarm,
-                    onStopRemoteAlarm = onStopRemoteFindAlarm
-                )
-            }
-            if (features.notificationSync) {
-                Spacer(modifier = Modifier.height(12.dp))
-                NotificationSyncPanel(
-                    notificationListenerGranted = notificationListenerGranted,
-                    notifications = uiState.remoteNotifications,
-                    onOpenNotificationListenerSettings = onOpenNotificationListenerSettings,
-                    onDismissNotification = onDismissRemoteNotification
-                )
-            }
-            if (features.mediaControl) {
-                Spacer(modifier = Modifier.height(12.dp))
-                MediaControlPanel(
-                    state = uiState.remoteMediaState,
-                    onCommand = onMediaControlCommand
-                )
-            }
-            if (features.presentationMode) {
-                Spacer(modifier = Modifier.height(12.dp))
-                PresentationPanel(
-                    remoteState = uiState.remotePresentationState,
-                    onMediaCommand = onMediaControlCommand,
-                    onPresentationAction = extendedFeatureActions.onPresentationAction
-                )
-            }
-            if (features.telephonySync) {
-                Spacer(modifier = Modifier.height(12.dp))
-                TelephonyPanel(
-                    events = uiState.remoteTelecommunicationEvents,
-                    onSendSmsTransmitOrder = onSendSmsTransmitOrder
-                )
-            }
-            if (features.safeCommands) {
-                Spacer(modifier = Modifier.height(12.dp))
-                SafeCustomCommandsPanel(
-                    results = uiState.remoteCustomCommandResults,
-                    onCommand = onSendSafeCustomCommand
-                )
-            }
-            if (features.sharedLinks) {
-                Spacer(modifier = Modifier.height(12.dp))
-                ShareUrlPanel(
-                    sharedUrls = uiState.remoteSharedUrls,
-                    onShareUrl = onShareUrl
-                )
-            }
-            if (features.clipboardSync) {
-                Spacer(modifier = Modifier.height(12.dp))
-                ClipboardSyncPanel(
-                    status = uiState.clipboardStatus,
-                    onSync = extendedFeatureActions.onSyncClipboard,
-                    onAddQuickSettingsTile = extendedFeatureActions.onRequestClipboardTile
-                )
-            }
-            if (features.contactSync) {
-                Spacer(modifier = Modifier.height(12.dp))
-                ContactSyncPanel(
-                    pendingImports = uiState.pendingContactImports,
-                    lastResult = uiState.lastContactResult,
-                    onPickContact = extendedFeatureActions.onPickContact,
-                    onApprove = extendedFeatureActions.onApproveContact,
-                    onReject = extendedFeatureActions.onRejectContact
-                )
-            }
-            if (features.remoteInput) {
-                Spacer(modifier = Modifier.height(12.dp))
-                RemoteInputPanel(onRemoteInput = onRemoteInput)
-            }
-            if (features.drawingTablet) {
-                Spacer(modifier = Modifier.height(12.dp))
-                DrawingTabletPanel(onStylusEvent = extendedFeatureActions.onStylusEvent)
-            }
-            if (features.remoteFiles) {
-                Spacer(modifier = Modifier.height(12.dp))
-                RemoteFilesPanel(
-                    sharedFolderName = uiState.sharedFolderName,
-                    remoteItems = uiState.remoteFileItems,
-                    remoteParentId = uiState.remoteFileParentId,
-                    remoteMessage = uiState.remoteFileMessage,
-                    onChooseSharedFolder = extendedFeatureActions.onChooseSharedFolder,
-                    onClearSharedFolder = extendedFeatureActions.onClearSharedFolder,
-                    onRequestList = extendedFeatureActions.onRequestRemoteFileList,
-                    onRequestDownload = extendedFeatureActions.onRequestRemoteFileDownload
-                )
-            }
-            if (features.safeCommands) {
-                Spacer(modifier = Modifier.height(12.dp))
-                CommandPanel(
-                    receivedCommands = uiState.receivedCommands,
-                    onSendCommand = onSendCommand
-                )
-            }
-            if (features.fileTransfer) {
-                Spacer(modifier = Modifier.height(12.dp))
-                RawFilePanel(
-                    transfers = uiState.rawFileTransfers,
-                    onPickFile = onPickFile,
-                    onApproveIncomingFile = onApproveIncomingFile,
-                    onRejectIncomingFile = onRejectIncomingFile
-                )
-            }
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Icon(
+                imageVector = item.icon,
+                contentDescription = null,
+                modifier = Modifier.size(30.dp),
+                tint = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -2751,7 +3122,7 @@ private fun ContactSyncPanel(
 @Composable
 private fun PresentationPanel(
     remoteState: RemotePresentationState,
-    onMediaCommand: (MediaEventCategory) -> Unit,
+    onMediaCommand: (MediaControlRequest) -> Unit,
     onPresentationAction: (PresentationAction, Long) -> Unit
 ) {
     var running by rememberSaveable { mutableStateOf(false) }
@@ -2786,11 +3157,11 @@ private fun PresentationPanel(
             ) {
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
-                    onClick = { onMediaCommand(MediaEventCategory.CMD_PREV) }
+                    onClick = { onMediaCommand(MediaControlRequest(MediaEventCategory.CMD_PREV)) }
                 ) { Text("Anterior") }
                 Button(
                     modifier = Modifier.weight(1f),
-                    onClick = { onMediaCommand(MediaEventCategory.CMD_NEXT) }
+                    onClick = { onMediaCommand(MediaControlRequest(MediaEventCategory.CMD_NEXT)) }
                 ) { Text("Próximo") }
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -3012,84 +3383,605 @@ private fun formatFileSize(bytes: Long): String = when {
 @Composable
 private fun MediaControlPanel(
     state: RemoteMediaState?,
-    onCommand: (MediaEventCategory) -> Unit
+    onCommand: (MediaControlRequest) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+    var selectedTab by rememberSaveable { mutableStateOf(MediaPanelTab.PLAYBACK) }
+    val visibleState = state ?: if (BuildConfig.DEBUG) debugMediaPreviewState() else null
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        MediaPanelSwitcher(
+            selected = selectedTab,
+            onSelected = { selectedTab = it }
         )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Controle de mídia", fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(6.dp))
-            if (state == null) {
-                Text(
-                    text = "Aguardando o estado de mídia do outro aparelho.",
-                    style = MaterialTheme.typography.bodySmall
+
+        if (visibleState == null) {
+            Spacer(modifier = Modifier.height(20.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            } else if (state.playbackStatus == PlaybackState.STATE_NONE &&
-                state.trackName.isBlank()
             ) {
                 Text(
-                    text = "Nenhuma sessão de mídia ativa no outro aparelho.",
-                    style = MaterialTheme.typography.bodySmall
+                    text = "Aguardando o estado de mídia do outro aparelho.",
+                    modifier = Modifier.padding(24.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            } else {
-                Text(
-                    text = state.trackName.ifBlank { "Mídia sem título" },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+            }
+            return@Column
+        }
+
+        when (selectedTab) {
+            MediaPanelTab.PLAYBACK -> MediaPlaybackTab(visibleState, onCommand)
+            MediaPanelTab.DEVICES -> MediaDevicesTab(
+                state = visibleState,
+                onCommand = onCommand,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 20.dp, bottom = 8.dp)
+            )
+        }
+    }
+}
+
+private enum class MediaPanelTab { PLAYBACK, DEVICES }
+
+@Composable
+private fun MediaPanelSwitcher(
+    selected: MediaPanelTab,
+    onSelected: (MediaPanelTab) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            MediaPanelSwitcherButton(
+                selected = selected == MediaPanelTab.PLAYBACK,
+                label = "Reproduzir",
+                modifier = Modifier.weight(1f),
+                onClick = { onSelected(MediaPanelTab.PLAYBACK) }
+            )
+            MediaPanelSwitcherButton(
+                selected = selected == MediaPanelTab.DEVICES,
+                label = "Dispositivos",
+                modifier = Modifier.weight(1f),
+                onClick = { onSelected(MediaPanelTab.DEVICES) }
+            )
+        }
+        HorizontalDivider()
+    }
+}
+
+@Composable
+private fun MediaPanelSwitcherButton(
+    selected: Boolean,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .heightIn(min = 62.dp)
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Bottom
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        Box(
+            modifier = Modifier
+                .height(4.dp)
+                .fillMaxWidth(0.55f)
+                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                .background(
+                    if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
                 )
-                if (state.artistName.isNotBlank()) {
-                    Text(state.artistName, style = MaterialTheme.typography.bodyMedium)
+        )
+    }
+}
+
+@Composable
+private fun MediaPlaybackTab(
+    state: RemoteMediaState,
+    onCommand: (MediaControlRequest) -> Unit
+) {
+    val artworkBitmap = remember(state.artworkThumbnail.contentHashCode()) {
+        state.artworkThumbnail.takeIf(ByteArray::isNotEmpty)?.let { bytes ->
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
+    }
+    val isPlaying = state.playbackStatus == PlaybackState.STATE_PLAYING
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val artworkHeight = if (maxHeight < 620.dp) {
+            (maxHeight * 0.38f).coerceIn(170.dp, 230.dp)
+        } else {
+            (maxHeight * 0.52f).coerceIn(230.dp, 380.dp)
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 18.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(artworkHeight)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                if (artworkBitmap != null) {
+                    Image(
+                        bitmap = artworkBitmap.asImageBitmap(),
+                        contentDescription = "Capa da mídia",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            modifier = Modifier.size(72.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Mídia Veyro",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+            Text(
+                text = state.trackName.ifBlank { "Nenhuma mídia ativa" },
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (state.artistName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${playbackStatusLabel(state.playbackStatus)} • " +
-                        formatMediaPosition(state.currentPositionMs),
-                    style = MaterialTheme.typography.bodySmall
+                    text = state.artistName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = { onCommand(MediaEventCategory.CMD_PREV) }
-                ) { Text("Anterior") }
-                Button(
-                    modifier = Modifier.weight(1f),
-                    onClick = { onCommand(MediaEventCategory.CMD_PLAY) }
-                ) { Text("Reproduzir") }
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = { onCommand(MediaEventCategory.CMD_NEXT) }
-                ) { Text("Próxima") }
-            }
             Spacer(modifier = Modifier.height(8.dp))
+            MediaProgressControl(
+                positionMs = state.currentPositionMs,
+                durationMs = state.durationMs,
+                onSeek = { position ->
+                    onCommand(
+                        MediaControlRequest(
+                            category = MediaEventCategory.CMD_SEEK_TO,
+                            requestedPositionMs = position
+                        )
+                    )
+                }
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = { onCommand(MediaEventCategory.CMD_PAUSE) }
-                ) { Text("Pausar") }
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = { onCommand(MediaEventCategory.CMD_VOL_DOWN) }
-                ) { Text("Volume −") }
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = { onCommand(MediaEventCategory.CMD_VOL_UP) }
-                ) { Text("Volume +") }
+                MediaTransportButton(
+                    icon = Icons.Default.SkipPrevious,
+                    contentDescription = "Faixa anterior",
+                    onClick = { onCommand(MediaControlRequest(MediaEventCategory.CMD_PREV)) }
+                )
+                MediaTransportButton(
+                    icon = Icons.Default.Replay10,
+                    contentDescription = "Voltar 10 segundos",
+                    onClick = {
+                        onCommand(
+                            MediaControlRequest(
+                                MediaEventCategory.CMD_SEEK_TO,
+                                requestedPositionMs = (state.currentPositionMs - 10_000L).coerceAtLeast(0L)
+                            )
+                        )
+                    }
+                )
+                FilledIconButton(
+                    modifier = Modifier.size(72.dp),
+                    onClick = {
+                        onCommand(
+                            MediaControlRequest(
+                                if (isPlaying) MediaEventCategory.CMD_PAUSE
+                                else MediaEventCategory.CMD_PLAY
+                            )
+                        )
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pausar" else "Reproduzir",
+                        modifier = Modifier.size(38.dp)
+                    )
+                }
+                MediaTransportButton(
+                    icon = Icons.Default.Forward10,
+                    contentDescription = "Avançar 10 segundos",
+                    onClick = {
+                        onCommand(
+                            MediaControlRequest(
+                                MediaEventCategory.CMD_SEEK_TO,
+                                requestedPositionMs = if (state.durationMs > 0L) {
+                                    (state.currentPositionMs + 10_000L).coerceAtMost(state.durationMs)
+                                } else {
+                                    state.currentPositionMs + 10_000L
+                                }
+                            )
+                        )
+                    }
+                )
+                MediaTransportButton(
+                    icon = Icons.Default.SkipNext,
+                    contentDescription = "Próxima faixa",
+                    onClick = { onCommand(MediaControlRequest(MediaEventCategory.CMD_NEXT)) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                MediaVolumeControl(
+                    current = state.volumeLevel,
+                    maximum = state.volumeMax,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    onCommit = { volume ->
+                        onCommand(
+                            MediaControlRequest(
+                                category = MediaEventCategory.CMD_SET_VOLUME,
+                                requestedVolume = volume
+                            )
+                        )
+                    }
+                )
             }
         }
     }
 }
+
+@Composable
+private fun MediaTransportButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .size(54.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(27.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun MediaProgressControl(
+    positionMs: Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit
+) {
+    val safeDuration = durationMs.coerceAtLeast(0L)
+    var draftPosition by remember { mutableStateOf(positionMs.coerceAtLeast(0L).toFloat()) }
+    LaunchedEffect(positionMs, safeDuration) {
+        draftPosition = positionMs
+            .coerceIn(0L, safeDuration.takeIf { it > 0L } ?: Long.MAX_VALUE)
+            .toFloat()
+    }
+
+    if (safeDuration > 0L) {
+        VeyroSlider(
+            progress = (draftPosition / safeDuration.toFloat()).coerceIn(0f, 1f),
+            onProgressChange = { draftPosition = it * safeDuration },
+            onProgressChangeFinished = { onSeek((it * safeDuration).toLong()) }
+        )
+    } else {
+        LinearProgressIndicator(
+            progress = { 0f },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(CircleShape)
+        )
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 1.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(formatMediaPosition(draftPosition.toLong()), style = MaterialTheme.typography.labelSmall)
+        Text(
+            if (safeDuration > 0L) formatMediaPosition(safeDuration) else "--:--",
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+@Composable
+private fun MediaVolumeControl(
+    current: Int,
+    maximum: Int,
+    modifier: Modifier = Modifier,
+    onCommit: (Int) -> Unit
+) {
+    val safeMaximum = maximum.coerceAtLeast(1)
+    var draft by remember(current, safeMaximum) {
+        mutableStateOf(current.coerceIn(0, safeMaximum).toFloat())
+    }
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.VolumeDown,
+            contentDescription = "Diminuir volume",
+            modifier = Modifier.size(22.dp)
+        )
+        VeyroSlider(
+            progress = (draft / safeMaximum.toFloat()).coerceIn(0f, 1f),
+            onProgressChange = { draft = it * safeMaximum },
+            onProgressChangeFinished = { onCommit((it * safeMaximum).roundToInt()) },
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 10.dp)
+        )
+        Icon(
+            Icons.Default.VolumeUp,
+            contentDescription = "Aumentar volume",
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun VeyroSlider(
+    progress: Float,
+    onProgressChange: (Float) -> Unit,
+    onProgressChangeFinished: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var widthPx by remember { mutableStateOf(1f) }
+    val safeProgress = progress.coerceIn(0f, 1f)
+    val activeColor = MaterialTheme.colorScheme.primary
+    val inactiveColor = MaterialTheme.colorScheme.outlineVariant
+    val thumbColor = MaterialTheme.colorScheme.primary
+    val thumbCenterColor = MaterialTheme.colorScheme.onPrimary
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .onSizeChanged { widthPx = it.width.coerceAtLeast(1).toFloat() }
+            .pointerInteropFilter { event ->
+                val updatedProgress = (event.x / widthPx).coerceIn(0f, 1f)
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN,
+                    MotionEvent.ACTION_MOVE -> {
+                        onProgressChange(updatedProgress)
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        onProgressChange(updatedProgress)
+                        onProgressChangeFinished(updatedProgress)
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> true
+                    else -> false
+                }
+            }
+    ) {
+        val horizontalInset = 9.dp.toPx()
+        val trackStart = horizontalInset
+        val trackEnd = (size.width - horizontalInset).coerceAtLeast(trackStart)
+        val centerY = size.height / 2f
+        val thumbX = trackStart + ((trackEnd - trackStart) * safeProgress)
+        val trackWidth = 6.dp.toPx()
+
+        drawLine(
+            color = inactiveColor,
+            start = Offset(trackStart, centerY),
+            end = Offset(trackEnd, centerY),
+            strokeWidth = trackWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = activeColor,
+            start = Offset(trackStart, centerY),
+            end = Offset(thumbX, centerY),
+            strokeWidth = trackWidth,
+            cap = StrokeCap.Round
+        )
+        drawCircle(
+            color = thumbColor,
+            radius = 9.dp.toPx(),
+            center = Offset(thumbX, centerY)
+        )
+        drawCircle(
+            color = thumbCenterColor,
+            radius = 3.dp.toPx(),
+            center = Offset(thumbX, centerY)
+        )
+    }
+}
+
+@Composable
+private fun MediaDevicesTab(
+    state: RemoteMediaState,
+    onCommand: (MediaControlRequest) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val routes = state.audioRoutes.ifEmpty {
+        listOf(RemoteAudioOutputRoute(0, "Alto-falante", "SPEAKER", true))
+    }
+    val streams = state.audioStreams.ifEmpty {
+        listOf(
+            RemoteAudioStreamVolume(
+                streamKind = AudioStreamKind.MEDIA,
+                displayName = "Mídia",
+                currentVolume = state.volumeLevel,
+                maxVolume = state.volumeMax,
+                isMuted = state.volumeLevel == 0
+            )
+        )
+    }
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Dispositivos de som", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        routes.forEach { route -> RemoteAudioRouteCard(route) }
+        Text(
+            "A saída ativa é informada pelo outro aparelho. Os volumes abaixo podem ser alterados individualmente.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("Volumes individuais", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        streams.forEach { stream ->
+            RemoteStreamVolumeCard(
+                stream = stream,
+                onCommit = { volume ->
+                    onCommand(
+                        MediaControlRequest(
+                            category = MediaEventCategory.CMD_SET_STREAM_VOLUME,
+                            requestedVolume = volume,
+                            targetStream = stream.streamKind
+                        )
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun RemoteAudioRouteCard(route: RemoteAudioOutputRoute) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(selected = route.isActive, onClick = null)
+            Spacer(modifier = Modifier.size(10.dp))
+            Icon(Icons.Default.Headphones, contentDescription = null)
+            Spacer(modifier = Modifier.size(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = route.displayName.ifBlank { "Saída de áudio" },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = if (route.isActive) "Em uso" else route.routeType.lowercase(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (route.isActive) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteStreamVolumeCard(
+    stream: RemoteAudioStreamVolume,
+    onCommit: (Int) -> Unit
+) {
+    val maximum = stream.maxVolume.coerceAtLeast(1)
+    var draft by remember(stream.streamKind, stream.currentVolume, maximum) {
+        mutableStateOf(stream.currentVolume.coerceIn(0, maximum).toFloat())
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.VolumeUp, contentDescription = null)
+                Spacer(modifier = Modifier.size(12.dp))
+                Text(
+                    stream.displayName.ifBlank { stream.streamKind.name.lowercase() },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text("${draft.roundToInt()}/$maximum", style = MaterialTheme.typography.labelMedium)
+            }
+            VeyroSlider(
+                progress = (draft / maximum.toFloat()).coerceIn(0f, 1f),
+                onProgressChange = { draft = it * maximum },
+                onProgressChangeFinished = { onCommit((it * maximum).roundToInt()) }
+            )
+        }
+    }
+}
+
+private fun debugMediaPreviewState(): RemoteMediaState = RemoteMediaState(
+    playbackStatus = PlaybackState.STATE_PAUSED,
+    trackName = "Mídia do aparelho conectado",
+    artistName = "Pré-visualização Veyro",
+    currentPositionMs = 94_000L,
+    durationMs = 225_000L,
+    artworkThumbnail = ByteArray(0),
+    artworkMimeType = "",
+    volumeLevel = 9,
+    volumeMax = 15,
+    audioStreams = listOf(
+        RemoteAudioStreamVolume(AudioStreamKind.MEDIA, "Mídia", 9, 15, false),
+        RemoteAudioStreamVolume(AudioStreamKind.RING, "Toque", 6, 15, false),
+        RemoteAudioStreamVolume(AudioStreamKind.ALARM, "Alarme", 8, 15, false),
+        RemoteAudioStreamVolume(AudioStreamKind.NOTIFICATION, "Notificações", 5, 15, false),
+        RemoteAudioStreamVolume(AudioStreamKind.VOICE_CALL, "Chamadas", 4, 7, false),
+        RemoteAudioStreamVolume(AudioStreamKind.SYSTEM, "Sistema", 7, 15, false)
+    ),
+    audioRoutes = listOf(
+        RemoteAudioOutputRoute(1, "Alto-falante", "SPEAKER", true),
+        RemoteAudioOutputRoute(2, "Áudio Bluetooth", "BLUETOOTH", false)
+    )
+)
 
 private fun playbackStatusLabel(status: Int): String = when (status) {
     PlaybackState.STATE_PLAYING -> "Reproduzindo"

@@ -57,6 +57,8 @@ internal class DesktopFastChannel(
 ) : AutoCloseable {
     private val messageSequence = AtomicLong()
     private val keepAliveSequence = AtomicLong()
+    private val receivedMessageIds = LinkedHashSet<String>()
+    private var lastReceivedMessageSequence = 0L
     private var socket: SSLSocket? = null
     private var receiveJob: Job? = null
     private var keepAliveJob: Job? = null
@@ -117,11 +119,12 @@ internal class DesktopFastChannel(
     }
 
     fun sendApplicationMessage(bytes: ByteArray) {
-        require(bytes.isNotEmpty() && bytes.size <= DesktopInteropProtocol.maximumFramePayloadSize)
+        require(bytes.isNotEmpty() && bytes.size <= MAXIMUM_APPLICATION_PAYLOAD_SIZE)
         val activeSocket = checkNotNull(socket) { "O canal com o Desktop não está conectado" }
         check(connected)
         val now = System.currentTimeMillis()
-        val envelope = TransportEnvelope.newBuilder()
+        val encrypted = DesktopApplicationCrypto.encrypt(bytes, identity, trustedPeer)
+        val builder = TransportEnvelope.newBuilder()
             .setProtocolMajor(DesktopInteropProtocol.protocolMajor)
             .setProtocolMinor(DesktopInteropProtocol.protocolMinor)
             .setMessageId(UUID.randomUUID().toString())
@@ -132,12 +135,10 @@ internal class DesktopFastChannel(
             .setExpiresAtUnixMs(now + MESSAGE_VALIDITY_MILLIS)
             .setRemainingHops(8)
             .setSequenceNumber(messageSequence.incrementAndGet())
-            .setOriginAuthentication(
-                ByteString.copyFrom(
-                    DesktopInteropProtocol.signP1363(identity.keyPair.private, DesktopInteropProtocol.sha256(bytes))
-                )
-            )
-            .setEncryptedPayload(ByteString.copyFrom(bytes))
+            .setEncryptedPayload(ByteString.copyFrom(encrypted))
+        val unsignedEnvelope = builder.build()
+        val envelope = builder
+            .setOriginAuthentication(ByteString.copyFrom(DesktopApplicationCrypto.sign(unsignedEnvelope, identity)))
             .build()
         sendPacket(activeSocket, FastChannelPacket.newBuilder().setTransportEnvelope(envelope).build())
     }
@@ -228,13 +229,33 @@ internal class DesktopFastChannel(
         val now = System.currentTimeMillis()
         if (envelope.protocolMajor != DesktopInteropProtocol.protocolMajor ||
             envelope.originDeviceId != trustedPeer.deviceId ||
+            envelope.messageId.isBlank() ||
+            envelope.createdAtUnixMs > now + MAXIMUM_CLOCK_SKEW_MILLIS ||
             envelope.expiresAtUnixMs < now ||
+            envelope.expiresAtUnixMs <= envelope.createdAtUnixMs ||
             envelope.remainingHops !in 1..8 ||
+            envelope.sequenceNumber <= 0 ||
             envelope.payloadType != TransportPayloadType.APPLICATION_MESSAGE ||
+            envelope.originAuthentication.size() != 64 ||
             envelope.encryptedPayload.isEmpty
         ) return
         val addressedToUs = identity.deviceId in envelope.destinationDeviceIdsList || envelope.authorizedBroadcast
-        if (addressedToUs) listener.onDesktopApplicationMessage(trustedPeer, envelope.encryptedPayload.toByteArray())
+        if (!addressedToUs || !DesktopApplicationCrypto.verify(envelope, trustedPeer)) return
+        synchronized(receivedMessageIds) {
+            if (envelope.messageId in receivedMessageIds || envelope.sequenceNumber <= lastReceivedMessageSequence) return
+            receivedMessageIds += envelope.messageId
+            while (receivedMessageIds.size > MAXIMUM_TRACKED_MESSAGE_IDS) {
+                receivedMessageIds.remove(receivedMessageIds.first())
+            }
+            lastReceivedMessageSequence = envelope.sequenceNumber
+        }
+        runCatching {
+            DesktopApplicationCrypto.decrypt(envelope.encryptedPayload.toByteArray(), envelope.originDeviceId, identity)
+        }.onSuccess { plaintext ->
+            listener.onDesktopApplicationMessage(trustedPeer, plaintext)
+        }.onFailure { error ->
+            listener.onDesktopFastChannelStatus("Uma mensagem do Desktop falhou na verificação criptográfica.", error)
+        }
     }
 
     private fun validateOffer(offer: FastChannelOffer): Boolean {
@@ -337,5 +358,8 @@ internal class DesktopFastChannel(
         const val KEEP_ALIVE_INTERVAL_MILLIS = 5_000L
         const val CONNECTION_TIMEOUT_MILLIS = 15_000L
         const val MESSAGE_VALIDITY_MILLIS = 120_000L
+        const val MAXIMUM_CLOCK_SKEW_MILLIS = 60_000L
+        const val MAXIMUM_TRACKED_MESSAGE_IDS = 2_048
+        const val MAXIMUM_APPLICATION_PAYLOAD_SIZE = 900 * 1024
     }
 }

@@ -2,10 +2,14 @@ package com.veyro.p2p.desktopinterop
 
 import android.app.Application
 import android.os.Build
+import android.util.Log
 import com.veyro.p2p.protocol.FastChannelAnswer
 import com.veyro.p2p.protocol.FastChannelOffer
 import com.veyro.p2p.settings.EcosystemPreferences
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.net.InetAddress
 
 internal interface DesktopInteropListener {
@@ -15,6 +19,7 @@ internal interface DesktopInteropListener {
     fun onDesktopConnected(peer: DesktopTrustedPeer)
     fun onDesktopDisconnected(peer: DesktopTrustedPeer)
     fun onDesktopApplicationMessage(peer: DesktopTrustedPeer, bytes: ByteArray)
+    fun onDesktopConnectionAttemptEnded(message: String)
     fun onDesktopStatus(message: String, error: Throwable? = null)
 }
 
@@ -37,13 +42,20 @@ internal class DesktopInteropManager(
     private var pendingOffer: FastChannelOffer? = null
     private var peers: List<DiscoveredDesktopPeer> = emptyList()
     private var started = false
+    private var startRetryJob: Job? = null
 
     fun start() {
         if (started) return
         started = true
         runCatching(ble::start).onFailure {
+            Log.e("VeyroDesktopInterop", "BLE transport start failed; retrying", it)
             started = false
             listener.onDesktopStatus("O transporte do Veyro Desktop não pôde ser iniciado.", it)
+            startRetryJob?.cancel()
+            startRetryJob = scope.launch {
+                delay(BLE_START_RETRY_MILLIS)
+                if (!started) start()
+            }
         }
     }
 
@@ -89,12 +101,22 @@ internal class DesktopInteropManager(
         )
     }
 
-    override fun onDesktopBleStatus(message: String, error: Throwable?) =
+    override fun onDesktopBleStatus(message: String, error: Throwable?) {
         listener.onDesktopStatus(message, error)
+        if (message == "Canal BLE com o Desktop encerrado." && fastChannel == null && ble.activePeer() == null) {
+            listener.onDesktopConnectionAttemptEnded(message)
+        }
+    }
 
     override fun onDesktopWifiDirectReady(groupOwnerAddress: InetAddress) {
         this.groupOwnerAddress = groupOwnerAddress
         tryOpenFastChannel()
+    }
+
+    override fun onDesktopWifiDirectLost() {
+        groupOwnerAddress = null
+        fastChannel?.close()
+        fastChannel = null
     }
 
     override fun onDesktopWifiDirectStatus(message: String, error: Throwable?) =
@@ -139,6 +161,8 @@ internal class DesktopInteropManager(
 
     override fun close() {
         started = false
+        startRetryJob?.cancel()
+        startRetryJob = null
         fastChannel?.close()
         fastChannel = null
         wifiDirect.close()
@@ -146,5 +170,9 @@ internal class DesktopInteropManager(
         peers = emptyList()
         groupOwnerAddress = null
         pendingOffer = null
+    }
+
+    private companion object {
+        const val BLE_START_RETRY_MILLIS = 3_000L
     }
 }
