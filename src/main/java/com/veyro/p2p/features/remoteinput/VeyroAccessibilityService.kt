@@ -61,6 +61,15 @@ class VeyroAccessibilityService : AccessibilityService() {
         }
     }
 
+    internal fun resetRemoteInputState() {
+        mainHandler.removeCallbacksAndMessages(null)
+        pendingDeltaX = 0f
+        pendingDeltaY = 0f
+        moveScheduled = false
+        stylusHasMoved = false
+        resetCursor()
+    }
+
     @RequiresApi(Build.VERSION_CODES.N)
     private fun dispatchStylus(event: RemoteInputEvent): Boolean {
         val targetX = event.normalizedX.coerceIn(0f, 1f) * screenWidth()

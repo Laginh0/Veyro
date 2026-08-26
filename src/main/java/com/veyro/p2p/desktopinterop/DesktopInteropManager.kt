@@ -5,7 +5,10 @@ import android.os.Build
 import android.util.Log
 import com.veyro.p2p.protocol.FastChannelAnswer
 import com.veyro.p2p.protocol.FastChannelOffer
+import com.veyro.p2p.protocol.GroupTopologyEvent
 import com.veyro.p2p.settings.EcosystemPreferences
+import com.veyro.p2p.nearby.LogicalSecurityContext
+import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -19,6 +22,7 @@ internal interface DesktopInteropListener {
     fun onDesktopConnected(peer: DesktopTrustedPeer)
     fun onDesktopDisconnected(peer: DesktopTrustedPeer)
     fun onDesktopApplicationMessage(peer: DesktopTrustedPeer, bytes: ByteArray)
+    fun onDesktopRoutedPeersChanged(peers: List<DesktopTrustedPeer>)
     fun onDesktopConnectionAttemptEnded(message: String)
     fun onDesktopStatus(message: String, error: Throwable? = null)
 }
@@ -26,6 +30,8 @@ internal interface DesktopInteropListener {
 internal class DesktopInteropManager(
     application: Application,
     private val scope: CoroutineScope,
+    private val logicalSecurity: LogicalSecurityContext,
+    private val routedPeerResolver: (String) -> DesktopTrustedPeer?,
     private val listener: DesktopInteropListener
 ) : DesktopBleListener, DesktopWifiDirectListener, DesktopFastChannelListener, AutoCloseable {
     private val preferences = EcosystemPreferences(application)
@@ -41,6 +47,8 @@ internal class DesktopInteropManager(
     private var groupOwnerAddress: InetAddress? = null
     private var pendingOffer: FastChannelOffer? = null
     private var peers: List<DiscoveredDesktopPeer> = emptyList()
+    private var routedPeers: List<DesktopTrustedPeer> = emptyList()
+    private var topologyEpoch: Long = 0L
     private var started = false
     private var startRetryJob: Job? = null
 
@@ -67,9 +75,42 @@ internal class DesktopInteropManager(
 
     fun confirmPin(accepted: Boolean) = ble.confirmPin(accepted)
 
-    fun sendApplicationMessage(bytes: ByteArray) = fastChannel
-        ?.sendApplicationMessage(bytes)
+    fun sendApplicationMessage(bytes: ByteArray, destinationDeviceId: String? = null) = fastChannel
+        ?.sendApplicationMessage(bytes, destinationDeviceId ?: checkNotNull(ble.activePeer()).deviceId)
         ?: error("O canal seguro com o Desktop ainda não está conectado")
+
+    fun updateGroupTopology(event: GroupTopologyEvent) {
+        val coordinator = ble.activePeer()
+            ?: error("A topologia chegou sem um Desktop autenticado")
+        require(event.coordinatorDeviceId == coordinator.deviceId && event.epoch > 0L)
+        if (event.epoch < topologyEpoch) return
+        val memberIds = event.membersList.map { it.deviceId }
+        require(memberIds.size <= MAXIMUM_GROUP_MEMBERS && memberIds.distinct().size == memberIds.size)
+        val now = System.currentTimeMillis()
+        val activeRoutes = event.membersList
+            .asSequence()
+            .filter { member ->
+                member.isAvailable && !member.isCoordinator && member.deviceId != identity.deviceId &&
+                    member.deviceId != coordinator.deviceId
+            }
+            .map { member ->
+                require(member.deviceId.isNotBlank() && member.displayName.isNotBlank())
+                val publicKey = member.identityPublicKeySpki.toByteArray()
+                DesktopInteropProtocol.publicKey(publicKey)
+                val pinned = routedPeerResolver(member.deviceId)
+                    ?: throw SecurityException("untrusted_routed_peer")
+                require(!pinned.isRevoked && MessageDigest.isEqual(
+                    pinned.identityPublicKeySpki,
+                    publicKey
+                )) { "routed_peer_key_mismatch" }
+                pinned.copy(displayName = member.displayName, lastSeenAtMillis = now)
+            }
+            .toList()
+        topologyEpoch = event.epoch
+        routedPeers = activeRoutes
+        fastChannel?.updateRoutedPeers(activeRoutes)
+        listener.onDesktopRoutedPeersChanged(activeRoutes)
+    }
 
     fun revokeByDisplayName(displayName: String): Boolean = ble.revokeByDisplayName(displayName)
 
@@ -90,6 +131,7 @@ internal class DesktopInteropManager(
     }
 
     override fun onDesktopFastChannelOffer(offer: FastChannelOffer) {
+        if (offer.targetDeviceId != identity.deviceId || fastChannel != null) return
         pendingOffer = offer
         tryOpenFastChannel()
     }
@@ -115,8 +157,16 @@ internal class DesktopInteropManager(
 
     override fun onDesktopWifiDirectLost() {
         groupOwnerAddress = null
-        fastChannel?.close()
+        val lostChannel = fastChannel
+        val lostPeer = ble.activePeer()
+        lostChannel?.close()
         fastChannel = null
+        routedPeers = emptyList()
+        topologyEpoch = 0L
+        listener.onDesktopRoutedPeersChanged(emptyList())
+        if (lostChannel != null && lostPeer != null) {
+            listener.onDesktopDisconnected(lostPeer)
+        }
     }
 
     override fun onDesktopWifiDirectStatus(message: String, error: Throwable?) =
@@ -140,22 +190,46 @@ internal class DesktopInteropManager(
         }
         ble.sendFastChannelAnswer(offer.sessionId, true)
         fastChannel?.close()
-        fastChannel = DesktopFastChannel(identity, peer, scope, this).also {
+        fastChannel = DesktopFastChannel(identity, peer, logicalSecurity, scope, this).also {
+            it.updateRoutedPeers(routedPeers)
             it.connect(address, offer)
         }
         pendingOffer = null
+        routedPeers = emptyList()
+        topologyEpoch = 0L
+        listener.onDesktopRoutedPeersChanged(emptyList())
     }
 
-    override fun onDesktopFastChannelConnected(peer: DesktopTrustedPeer) = listener.onDesktopConnected(peer)
+    override fun onDesktopFastChannelConnected(source: DesktopFastChannel, peer: DesktopTrustedPeer) {
+        if (fastChannel !== source) {
+            source.close()
+            return
+        }
+        listener.onDesktopConnected(peer)
+    }
 
-    override fun onDesktopApplicationMessage(peer: DesktopTrustedPeer, bytes: ByteArray) =
-        listener.onDesktopApplicationMessage(peer, bytes)
+    override fun onDesktopApplicationMessage(
+        source: DesktopFastChannel,
+        peer: DesktopTrustedPeer,
+        bytes: ByteArray
+    ) {
+        if (fastChannel === source) listener.onDesktopApplicationMessage(peer, bytes)
+    }
 
-    override fun onDesktopFastChannelStatus(message: String, error: Throwable?) =
-        listener.onDesktopStatus(message, error)
+    override fun onDesktopFastChannelStatus(
+        source: DesktopFastChannel,
+        message: String,
+        error: Throwable?
+    ) {
+        if (fastChannel === source) listener.onDesktopStatus(message, error)
+    }
 
-    override fun onDesktopFastChannelDisconnected(peer: DesktopTrustedPeer) {
+    override fun onDesktopFastChannelDisconnected(source: DesktopFastChannel, peer: DesktopTrustedPeer) {
+        if (fastChannel !== source) return
         fastChannel = null
+        routedPeers = emptyList()
+        topologyEpoch = 0L
+        listener.onDesktopRoutedPeersChanged(emptyList())
         listener.onDesktopDisconnected(peer)
     }
 
@@ -168,11 +242,15 @@ internal class DesktopInteropManager(
         wifiDirect.close()
         ble.close()
         peers = emptyList()
+        routedPeers = emptyList()
+        topologyEpoch = 0L
+        listener.onDesktopRoutedPeersChanged(emptyList())
         groupOwnerAddress = null
         pendingOffer = null
     }
 
     private companion object {
         const val BLE_START_RETRY_MILLIS = 3_000L
+        const val MAXIMUM_GROUP_MEMBERS = 32
     }
 }

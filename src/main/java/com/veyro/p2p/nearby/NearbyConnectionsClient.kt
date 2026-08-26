@@ -19,6 +19,7 @@ import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import com.google.android.gms.tasks.Task
 import com.veyro.p2p.BuildConfig
+import java.security.MessageDigest
 
 interface NearbyConnectionsListener {
     fun onEndpointFound(endpointId: String, endpointName: String)
@@ -168,7 +169,11 @@ class NearbyConnectionsClient(
     fun sendBytes(endpointId: String, bytes: ByteArray): Task<Void> =
         connectionsClient.sendPayload(endpointId, Payload.fromBytes(bytes))
 
-    fun sendFile(endpointId: String, uri: Uri): FileMetadata {
+    fun sendFile(
+        endpointId: String,
+        uri: Uri,
+        protectMetadata: (FileMetadata) -> ByteArray
+    ): FileMetadata {
         val descriptor = contentResolver.openFileDescriptor(uri, "r")
             ?: error("Não foi possível abrir o arquivo selecionado.")
         val payload = Payload.fromFile(descriptor)
@@ -178,7 +183,7 @@ class NearbyConnectionsClient(
         return runCatching {
             connectionsClient.sendPayload(
                 endpointId,
-                Payload.fromBytes(metadata.toWireBytes())
+                Payload.fromBytes(protectMetadata(metadata))
             )
             connectionsClient.sendPayload(endpointId, payload)
             metadata
@@ -244,7 +249,17 @@ class NearbyConnectionsClient(
             payloadId = payloadId,
             fileName = fileName,
             totalBytes = totalBytes.coerceAtLeast(0L),
-            mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+            mimeType = contentResolver.getType(uri) ?: "application/octet-stream",
+            sha256 = contentResolver.openInputStream(uri)?.use { input ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count > 0) digest.update(buffer, 0, count)
+                }
+                digest.digest()
+            } ?: error("Não foi possível calcular o hash do arquivo selecionado.")
         )
     }
 

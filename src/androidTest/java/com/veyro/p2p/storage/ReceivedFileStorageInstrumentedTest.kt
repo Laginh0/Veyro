@@ -13,6 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.security.MessageDigest
 
 @RunWith(AndroidJUnit4::class)
 class ReceivedFileStorageInstrumentedTest {
@@ -34,7 +35,8 @@ class ReceivedFileStorageInstrumentedTest {
                     payloadId = System.currentTimeMillis(),
                     fileName = fileName,
                     totalBytes = testBytes.size.toLong(),
-                    mimeType = "text/plain"
+                    mimeType = "text/plain",
+                    sha256 = MessageDigest.getInstance("SHA-256").digest(testBytes)
                 )
             )
             savedUri = savedFile.uri

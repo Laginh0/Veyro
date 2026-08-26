@@ -34,6 +34,8 @@ import com.veyro.p2p.features.telephony.TelephonyCallStateMonitor
 import com.veyro.p2p.features.telephony.TelephonySyncBridge
 import com.veyro.p2p.desktopinterop.DesktopInteropListener
 import com.veyro.p2p.desktopinterop.DesktopInteropManager
+import com.veyro.p2p.desktopinterop.DesktopApplicationCrypto
+import com.veyro.p2p.desktopinterop.DesktopIdentityStore
 import com.veyro.p2p.desktopinterop.DesktopPairingVerification
 import com.veyro.p2p.desktopinterop.DesktopTrustedPeer
 import com.veyro.p2p.desktopinterop.DiscoveredDesktopPeer
@@ -69,6 +71,8 @@ import com.veyro.p2p.protocol.TelecommunicationType
 import com.veyro.p2p.protocol.UrlShareEvent
 import com.veyro.p2p.protocol.VeyroProtocolCodec
 import com.veyro.p2p.protocol.VeyroMessage
+import com.veyro.p2p.protocol.TransportEnvelope
+import com.veyro.p2p.protocol.TransportPayloadType
 import com.veyro.p2p.service.P2PTransferService
 import com.veyro.p2p.settings.EcosystemPreferences
 import com.veyro.p2p.settings.EnergyMode
@@ -326,14 +330,36 @@ internal class NearbySessionController(
 ) : NearbyConnectionsListener {
     private val appContext = application.applicationContext
     private val ecosystemPreferences = EcosystemPreferences(application)
+    private val cryptographicIdentity = DesktopIdentityStore(
+        application,
+        ecosystemPreferences.localDeviceId(),
+        ecosystemPreferences.localDisplayName()
+    ).loadOrCreate()
+    private val nearbyTrustStore = NearbyPeerTrustStore(application)
+    private val logicalSecurity = LogicalSecurityContext(
+        senderEpoch = ecosystemPreferences.nextSenderEpoch()
+    )
     private val localIdentity = EndpointIdentity(
         deviceId = ecosystemPreferences.localDeviceId(),
         capacityScore = calculateCapacityScore(),
+        identityKeyFingerprint = NearbyIdentitySecurity.fingerprint(
+            cryptographicIdentity.keyPair.public.encoded
+        ),
         displayName = ecosystemPreferences.localDisplayName()
     )
     private val localEndpointName = localIdentity.toWireName()
     private val endpointIdentities = ConcurrentHashMap<String, EndpointIdentity>()
     private val connectionAttemptJobs = ConcurrentHashMap<String, Job>()
+    private data class PendingNearbyAuthentication(
+        val identity: EndpointIdentity,
+        val authenticationDigits: String,
+        val role: ConnectionRole,
+        val userApproved: Boolean
+    )
+    private val pendingNearbyAuthentications = ConcurrentHashMap<String, PendingNearbyAuthentication>()
+    private val nearbyAuthenticationDigits = ConcurrentHashMap<String, String>()
+    private val userApprovedNearbyEndpoints = ConcurrentHashMap<String, Unit>()
+    private val authenticatedNearbyPeers = ConcurrentHashMap<String, DesktopTrustedPeer>()
     private val fileMetadataByPayloadId = ConcurrentHashMap<Long, FileMetadata>()
     private val completedFilePayloadIds = ConcurrentHashMap<Long, Unit>()
     private val savingFilePayloadIds = ConcurrentHashMap<Long, Unit>()
@@ -407,12 +433,14 @@ internal class NearbySessionController(
         DesktopInteropManager(
             application = application,
             scope = controllerScope,
+            logicalSecurity = logicalSecurity,
+            routedPeerResolver = nearbyTrustStore::active,
             listener = object : DesktopInteropListener {
                 override fun onDesktopPeersChanged(peers: List<DiscoveredDesktopPeer>) {
                     val desktopEndpoints = peers.map { peer ->
                         DiscoveredEndpoint(
                             id = peer.endpointId,
-                            name = "Veyro Desktop • ${peer.ephemeralId.take(6).uppercase()}",
+                            name = "Veyro Desktop via Wi-Fi • ${peer.ephemeralId.take(6).uppercase()}",
                             stableDeviceId = peer.ephemeralId,
                             transport = EndpointTransport.DESKTOP
                         )
@@ -442,7 +470,7 @@ internal class NearbySessionController(
                 }
 
                 override fun onDesktopTrusted(peer: DesktopTrustedPeer) {
-                    ecosystemPreferences.rememberDevice(peer.displayName)
+                    ecosystemPreferences.rememberDevice(peer.displayName, peer.deviceId)
                     _uiState.update {
                         it.copy(
                             trustedDevices = ecosystemPreferences.trustedDevices(),
@@ -453,6 +481,10 @@ internal class NearbySessionController(
                 }
 
                 override fun onDesktopConnected(peer: DesktopTrustedPeer) {
+                    RemoteInputBridge.resetEphemeralState()
+                    val nearbyEndpointIds = TransportBoundary.nearbySessions(
+                        _uiState.value.connectedEndpoints
+                    ).map { it.id }
                     val endpoint = ConnectedEndpoint(
                         id = desktopEndpointId(peer.deviceId),
                         name = peer.displayName,
@@ -462,17 +494,18 @@ internal class NearbySessionController(
                     )
                     _uiState.update { state ->
                         val connected = state.connectedEndpoints
-                            .filterNot { it.id == endpoint.id } + endpoint
+                            .filter { it.transport == EndpointTransport.DESKTOP && it.id != endpoint.id } + endpoint
                         state.copy(
                             connectionStage = ConnectionStage.CONNECTED,
                             pendingConnection = null,
                             connectedEndpoints = connected,
                             connectedEndpointId = endpoint.id,
                             connectedEndpointName = endpoint.name,
-                            statusMessage = "Canal seguro ativo com ${peer.displayName}.",
+                            statusMessage = "${peer.displayName} assumiu a coordenação da estrela Wi-Fi.",
                             errorMessage = null
                         )
                     }
+                    suspendNearbyForDesktopHub(nearbyEndpointIds)
                     val features = _uiState.value.featureSettings
                     if (features.batterySync) startBatterySync()
                     if (features.connectivitySync) startConnectivitySync()
@@ -483,16 +516,18 @@ internal class NearbySessionController(
                 }
 
                 override fun onDesktopDisconnected(peer: DesktopTrustedPeer) {
-                    val endpointId = desktopEndpointId(peer.deviceId)
+                    RemoteInputBridge.resetEphemeralState()
                     _uiState.update { state ->
-                        val remaining = state.connectedEndpoints.filterNot { it.id == endpointId }
+                        val remaining = state.connectedEndpoints.filterNot {
+                            it.transport == EndpointTransport.DESKTOP
+                        }
                         val selected = remaining.firstOrNull()
                         state.copy(
                             connectionStage = if (remaining.isEmpty()) ConnectionStage.ACTIVE else ConnectionStage.CONNECTED,
                             connectedEndpoints = remaining,
                             connectedEndpointId = selected?.id,
                             connectedEndpointName = selected?.name,
-                            statusMessage = "Canal com ${peer.displayName} encerrado; BLE permanece disponível."
+                            statusMessage = "Desktop indisponível; retomando Google Nearby entre Androids."
                         )
                     }
                     if (_uiState.value.connectedEndpoints.isEmpty()) {
@@ -503,10 +538,46 @@ internal class NearbySessionController(
                         stopMediaSync()
                         stopTelephonySync()
                     }
+                    resumeNearbyFallback()
                 }
 
                 override fun onDesktopApplicationMessage(peer: DesktopTrustedPeer, bytes: ByteArray) {
-                    onBytesPayloadReceived(desktopEndpointId(peer.deviceId), bytes)
+                    val directId = desktopEndpointId(peer.deviceId)
+                    val endpointId = if (_uiState.value.connectedEndpoints.any { it.id == directId }) {
+                        directId
+                    } else {
+                        desktopRoutedEndpointId(peer.deviceId)
+                    }
+                    handleTransportBytesReceived(endpointId, bytes, ConnectionDataPlane.DESKTOP_WIFI)
+                }
+
+                override fun onDesktopRoutedPeersChanged(peers: List<DesktopTrustedPeer>) {
+                    _uiState.update { state ->
+                        val directDesktop = state.connectedEndpoints.filter {
+                            it.transport == EndpointTransport.DESKTOP &&
+                                !it.id.startsWith(DESKTOP_ROUTED_ENDPOINT_PREFIX)
+                        }
+                        val routes = peers.map { routedPeer ->
+                            ConnectedEndpoint(
+                                id = desktopRoutedEndpointId(routedPeer.deviceId),
+                                name = routedPeer.displayName,
+                                stableDeviceId = routedPeer.deviceId,
+                                role = ConnectionRole.DISCOVERER,
+                                transport = EndpointTransport.DESKTOP
+                            )
+                        }
+                        val connected = directDesktop + routes
+                        val selected = connected.firstOrNull { it.id == state.connectedEndpointId }
+                            ?: directDesktop.firstOrNull()
+                            ?: routes.firstOrNull()
+                        state.copy(
+                            connectedEndpoints = connected,
+                            connectedEndpointId = selected?.id,
+                            connectedEndpointName = selected?.name,
+                            statusMessage = if (routes.isEmpty()) state.statusMessage else
+                                "Estrela Wi-Fi ativa: ${routes.size} Android(s) roteado(s) pelo Desktop."
+                        )
+                    }
                 }
 
                 override fun onDesktopConnectionAttemptEnded(message: String) {
@@ -546,16 +617,24 @@ internal class NearbySessionController(
                 Log.e("VeyroDesktopInterop", "Desktop interop initialization failed", error)
                 _uiState.update { it.copy(errorMessage = error.localizedMessage) }
             }
-        val client = clientResult.getOrElse { error ->
-            showError(error)
-            return
-        }
         ecosystemPreferences.setEcosystemEnabled(true)
-        if (_uiState.value.connectedEndpoints.isNotEmpty()) {
+        val client = clientResult.getOrNull()
+        if (TransportBoundary.hasDesktopWifiSession(_uiState.value.connectedEndpoints)) {
             _uiState.update {
                 it.copy(
                     ecosystemEnabled = true,
-                    statusMessage = "Ecossistema contínuo ativo; reconexão automática habilitada.",
+                    connectionStage = ConnectionStage.CONNECTED,
+                    statusMessage = "Estrela Wi-Fi coordenada pelo Desktop; Nearby em espera.",
+                    errorMessage = null
+                )
+            }
+            return
+        }
+        if (TransportBoundary.hasNearbySession(_uiState.value.connectedEndpoints)) {
+            _uiState.update {
+                it.copy(
+                    ecosystemEnabled = true,
+                    statusMessage = "Google Nearby ativo entre aparelhos Android; reconexão automática habilitada.",
                     errorMessage = null
                 )
             }
@@ -564,22 +643,41 @@ internal class NearbySessionController(
         reconnectJob?.cancel()
         radioDutyCycleJob?.cancel()
         cancelConnectionAttempts()
-        stopRadioOperations(client)
-        _uiState.update {
-            it.copy(
+        client?.let(::stopRadioOperations)
+        _uiState.update { state ->
+            val desktopConnections = TransportBoundary.desktopWifiSessions(state.connectedEndpoints)
+            val selectedDesktop = desktopConnections.firstOrNull { it.id == state.connectedEndpointId }
+                ?: desktopConnections.firstOrNull()
+            state.copy(
                 role = ConnectionRole.NONE,
-                connectionStage = ConnectionStage.ACTIVE,
-                discoveredEndpoints = emptyList(),
-                pendingConnection = null,
-                connectedEndpoints = emptyList(),
-                connectedEndpointId = null,
-                connectedEndpointName = null,
+                connectionStage = if (desktopConnections.isEmpty()) {
+                    ConnectionStage.ACTIVE
+                } else {
+                    ConnectionStage.CONNECTED
+                },
+                discoveredEndpoints = state.discoveredEndpoints.filter {
+                    it.transport == EndpointTransport.DESKTOP
+                },
+                pendingConnection = state.pendingConnection?.takeIf {
+                    it.transport == EndpointTransport.DESKTOP
+                },
+                connectedEndpoints = desktopConnections,
+                connectedEndpointId = selectedDesktop?.id,
+                connectedEndpointName = selectedDesktop?.name,
                 ecosystemEnabled = true,
-                statusMessage = "Ativando visibilidade e detecção simultâneas...",
-                errorMessage = null
+                statusMessage = if (client == null) {
+                    "Canal Desktop disponível; Google Nearby não pôde ser inicializado."
+                } else {
+                    "Ativando Google Nearby para Android e Wi-Fi para Desktop..."
+                },
+                errorMessage = if (client == null) {
+                    clientResult.exceptionOrNull()?.localizedMessage
+                } else {
+                    null
+                }
             )
         }
-        applyRadioPolicy()
+        if (client != null) applyRadioPolicy()
     }
 
     fun restoreContinuousEcosystemIfEnabled() {
@@ -593,7 +691,7 @@ internal class NearbySessionController(
             _uiState.update {
                 it.copy(
                     connectionStage = ConnectionStage.CONNECTING,
-                    statusMessage = "Conectando ao Veyro Desktop por BLE…",
+                    statusMessage = "Preparando o canal Wi-Fi seguro com o Veyro Desktop…",
                     errorMessage = null
                 )
             }
@@ -605,7 +703,9 @@ internal class NearbySessionController(
 
     private fun requestConnectionInternal(endpointId: String, endpointName: String) {
         val state = _uiState.value
-        if ((state.role == ConnectionRole.DISCOVERER && state.connectedEndpoints.isNotEmpty()) ||
+        if (TransportBoundary.hasDesktopWifiSession(state.connectedEndpoints)) return
+        val nearbyConnections = TransportBoundary.nearbySessions(state.connectedEndpoints)
+        if ((state.role == ConnectionRole.DISCOVERER && nearbyConnections.isNotEmpty()) ||
             state.pendingConnection != null ||
             state.connectionStage == ConnectionStage.CONNECTING ||
             state.connectionStage == ConnectionStage.AUTHENTICATING
@@ -658,6 +758,8 @@ internal class NearbySessionController(
             return
         }
 
+        userApprovedNearbyEndpoints[pending.endpointId] = Unit
+
         runTask(
             taskProvider = { client.acceptConnection(pending.endpointId) },
             onSuccess = {
@@ -689,6 +791,9 @@ internal class NearbySessionController(
             showError(error)
             return
         }
+
+        userApprovedNearbyEndpoints.remove(pending.endpointId)
+        nearbyAuthenticationDigits.remove(pending.endpointId)
 
         runTask(
             taskProvider = { client.rejectConnection(pending.endpointId) },
@@ -724,7 +829,7 @@ internal class NearbySessionController(
         stopTelephonySync()
         findMyDeviceAlarm.stop()
         clientResult.getOrNull()?.let { client ->
-            _uiState.value.connectedEndpoints.forEach { endpoint ->
+            TransportBoundary.nearbySessions(_uiState.value.connectedEndpoints).forEach { endpoint ->
                 client.disconnectFromEndpoint(endpoint.id)
             }
             stopRadioOperations(client)
@@ -733,6 +838,10 @@ internal class NearbySessionController(
         completedFilePayloadIds.clear()
         approvedFilePayloadIds.clear()
         endpointIdentities.clear()
+        pendingNearbyAuthentications.clear()
+        nearbyAuthenticationDigits.clear()
+        userApprovedNearbyEndpoints.clear()
+        authenticatedNearbyPeers.clear()
         seenClipboardEventIds.clear()
         lastClipboardFingerprint = null
         _uiState.update {
@@ -781,6 +890,7 @@ internal class NearbySessionController(
 
     fun removeTrustedDevice(deviceName: String) {
         runCatching { desktopInterop.revokeByDisplayName(deviceName) }
+        runCatching { nearbyTrustStore.revokeByDisplayName(deviceName) }
         ecosystemPreferences.removeDevice(deviceName)
         _uiState.update {
             it.copy(
@@ -969,8 +1079,14 @@ internal class NearbySessionController(
     }
 
     override fun onEndpointFound(endpointId: String, endpointName: String) {
+        // Nearby callbacks are accepted only for valid Android wire identities. Desktop discovery
+        // is owned by DesktopInteropManager and never enters the Google Nearby data plane.
+        if (!TransportBoundary.shouldRunNearbyFallback(_uiState.value.connectedEndpoints)) return
         val identity = EndpointIdentity.parse(endpointName) ?: return
         if (identity.deviceId == localIdentity.deviceId) return
+        if (!endpointIdentities.containsKey(endpointId) &&
+            endpointIdentities.size >= MAXIMUM_DISCOVERED_ENDPOINTS
+        ) return
         endpointIdentities[endpointId] = identity
         _uiState.update { state ->
             val endpoints = state.discoveredEndpoints
@@ -1018,24 +1134,47 @@ internal class NearbySessionController(
             ?: endpointIdentities[endpointId]
             ?: return
         endpointIdentities[endpointId] = identity
+        nearbyAuthenticationDigits[endpointId] = authenticationDigits
         val trustedName = identity.trustedName
         val client = clientResult.getOrNull() ?: return
         val state = _uiState.value
+        if (!TransportBoundary.shouldRunNearbyFallback(state.connectedEndpoints)) {
+            client.rejectConnection(endpointId)
+            return
+        }
+        val nearbyConnections = TransportBoundary.nearbySessions(state.connectedEndpoints)
         val proposedRole = if (EndpointIdentity.shouldInitiate(localIdentity, identity)) {
             ConnectionRole.DISCOVERER
         } else {
             ConnectionRole.ADVERTISER
         }
-        val incompatibleRole = state.connectedEndpoints.isNotEmpty() && state.role != proposedRole
+        val incompatibleRole = nearbyConnections.isNotEmpty() && state.role != proposedRole
         val satelliteAlreadyConnected = proposedRole == ConnectionRole.DISCOVERER &&
-            state.connectedEndpoints.isNotEmpty()
+            nearbyConnections.isNotEmpty()
         if (incompatibleRole || satelliteAlreadyConnected ||
             (state.pendingConnection != null && state.pendingConnection.endpointId != endpointId)
         ) {
             client.rejectConnection(endpointId)
             return
         }
-        if (ecosystemPreferences.rulesFor(trustedName) != null) {
+        val pinnedPeer = nearbyTrustStore.active(identity.deviceId)
+        if (pinnedPeer != null && NearbyIdentitySecurity.fingerprint(
+                pinnedPeer.identityPublicKeySpki
+            ) != identity.identityKeyFingerprint
+        ) {
+            client.rejectConnection(endpointId)
+            nearbyAuthenticationDigits.remove(endpointId)
+            _uiState.update {
+                it.copy(
+                    connectionStage = ConnectionStage.ERROR,
+                    pendingConnection = null,
+                    statusMessage = "Conexão Nearby rejeitada por colisão de identidade.",
+                    errorMessage = "A chave anunciada não corresponde ao Trust Hub."
+                )
+            }
+            return
+        }
+        if (pinnedPeer != null) {
             _uiState.update {
                 it.copy(
                     connectionStage = ConnectionStage.CONNECTING,
@@ -1069,18 +1208,24 @@ internal class NearbySessionController(
         isSuccess: Boolean
     ) {
         if (isSuccess) {
+            if (TransportBoundary.hasDesktopWifiSession(_uiState.value.connectedEndpoints)) {
+                clientResult.getOrNull()?.disconnectFromEndpoint(endpointId)
+                return
+            }
             reconnectJob?.cancel()
             radioDutyCycleJob?.cancel()
             radioDutyCycleJob = null
             cancelConnectionAttempts()
             val identity = endpointIdentities[endpointId]
                 ?: endpointName?.let(EndpointIdentity::parse)
-            val trustedDevice = ecosystemPreferences.rememberDevice(
-                identity?.trustedName ?: _uiState.value.pendingConnection?.endpointName
-                    ?: "Dispositivo conectado"
-            )
+            val authenticationDigits = nearbyAuthenticationDigits[endpointId]
+            if (identity == null || authenticationDigits == null) {
+                clientResult.getOrNull()?.disconnectFromEndpoint(endpointId)
+                showFeatureError(SecurityException("missing_nearby_identity_transcript"))
+                return
+            }
             val endpointRole = _uiState.value.role.takeIf { it != ConnectionRole.NONE }
-                ?: if (identity != null && EndpointIdentity.shouldInitiate(localIdentity, identity)) {
+                ?: if (EndpointIdentity.shouldInitiate(localIdentity, identity)) {
                     ConnectionRole.DISCOVERER
                 } else {
                     ConnectionRole.ADVERTISER
@@ -1092,38 +1237,30 @@ internal class NearbySessionController(
                     stopRadioOperations(client)
                 }
             }
-            _uiState.update { state ->
-                val connected = state.connectedEndpoints
-                    .filterNot { it.id == endpointId }
-                    .plus(
-                        ConnectedEndpoint(
-                            id = endpointId,
-                            name = trustedDevice.deviceName,
-                            stableDeviceId = identity?.deviceId.orEmpty(),
-                            role = endpointRole
-                        )
-                    )
-                val selectNew = state.connectedEndpointId == null
-                state.copy(
-                    role = endpointRole,
-                    connectionStage = ConnectionStage.CONNECTED,
+            pendingNearbyAuthentications[endpointId] = PendingNearbyAuthentication(
+                identity,
+                authenticationDigits,
+                endpointRole,
+                userApprovedNearbyEndpoints.remove(endpointId) != null
+            )
+            _uiState.update {
+                it.copy(
+                    connectionStage = ConnectionStage.AUTHENTICATING,
                     pendingConnection = null,
-                    connectedEndpoints = connected,
-                    connectedEndpointId = if (selectNew) endpointId else state.connectedEndpointId,
-                    connectedEndpointName = if (selectNew) trustedDevice.deviceName else state.connectedEndpointName,
-                    trustedDevices = ecosystemPreferences.trustedDevices(),
-                    statusMessage = "${connected.size} aparelho(s) conectado(s).",
+                    statusMessage = "Validando a identidade criptográfica do aparelho…",
                     errorMessage = null
                 )
             }
-            val features = _uiState.value.featureSettings
-            if (features.batterySync) startBatterySync()
-            if (features.connectivitySync) startConnectivitySync()
-            if (features.ping) startPing()
-            if (features.notificationSync) startNotificationSync()
-            if (features.mediaControl) startMediaSync()
-            if (features.telephonySync) startTelephonySync()
+            val claim = NearbyIdentitySecurity.createClaim(cryptographicIdentity, authenticationDigits)
+            clientResult.getOrNull()?.sendBytes(endpointId, NearbyIdentitySecurity.wrapClaim(claim))
+                ?.addOnFailureListener {
+                    clientResult.getOrNull()?.disconnectFromEndpoint(endpointId)
+                    showFeatureError(it)
+                }
         } else {
+            pendingNearbyAuthentications.remove(endpointId)
+            nearbyAuthenticationDigits.remove(endpointId)
+            userApprovedNearbyEndpoints.remove(endpointId)
             val hasOtherConnections = _uiState.value.connectedEndpoints.isNotEmpty()
             if (!hasOtherConnections) {
                 stopBatterySync()
@@ -1161,13 +1298,36 @@ internal class NearbySessionController(
     }
 
     override fun onDisconnected(endpointId: String) {
+        RemoteInputBridge.resetEphemeralState()
+        pendingNearbyAuthentications.remove(endpointId)
+        nearbyAuthenticationDigits.remove(endpointId)
+        userApprovedNearbyEndpoints.remove(endpointId)
+        authenticatedNearbyPeers.remove(endpointId)
+        val disconnected = TransportBoundary.connectedEndpoint(
+            endpointId,
+            _uiState.value.connectedEndpoints
+        )
+        if (disconnected == null) {
+            _uiState.update { state ->
+                state.copy(
+                    connectionStage = if (state.ecosystemEnabled) ConnectionStage.ACTIVE else
+                        ConnectionStage.IDLE,
+                    pendingConnection = state.pendingConnection?.takeIf { it.endpointId != endpointId },
+                    statusMessage = "A autenticação Nearby foi interrompida; tentando novamente."
+                )
+            }
+            if (_uiState.value.ecosystemEnabled) scheduleRadioRestart()
+            return
+        }
+        if (disconnected.transport != EndpointTransport.NEARBY) return
         _uiState.update { state ->
             val remaining = state.connectedEndpoints.filterNot { it.id == endpointId }
+            val remainingNearby = TransportBoundary.nearbySessions(remaining)
             val activeWasRemoved = state.connectedEndpointId == endpointId
             val nextActive = if (activeWasRemoved) remaining.firstOrNull() else
                 remaining.firstOrNull { it.id == state.connectedEndpointId }
             state.copy(
-                role = if (remaining.isEmpty()) ConnectionRole.NONE else state.role,
+                role = if (remainingNearby.isEmpty()) ConnectionRole.NONE else state.role,
                 connectionStage = if (remaining.isNotEmpty()) ConnectionStage.CONNECTED else
                     if (state.ecosystemEnabled) ConnectionStage.ACTIVE else ConnectionStage.IDLE,
                 connectedEndpoints = remaining,
@@ -1238,7 +1398,9 @@ internal class NearbySessionController(
     fun sendCommand(command: String) {
         if (!_uiState.value.featureSettings.safeCommands) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
-        if (_uiState.value.connectedEndpoints.firstOrNull { it.id == endpointId }?.transport == EndpointTransport.DESKTOP) {
+        val endpoint = TransportBoundary.connectedEndpoint(endpointId, _uiState.value.connectedEndpoints)
+            ?: return showMissingTransportEndpoint(endpointId)
+        if (TransportBoundary.dataPlaneFor(endpoint) == ConnectionDataPlane.DESKTOP_WIFI) {
             _uiState.update {
                 it.copy(errorMessage = "Os comandos legados ainda não são compatíveis com o Veyro Desktop.")
             }
@@ -1247,17 +1409,11 @@ internal class NearbySessionController(
         val trimmedCommand = command.trim()
         if (trimmedCommand.isEmpty()) return
 
-        val client = clientResult.getOrElse { error ->
-            showError(error)
-            return
-        }
-        runCatching {
-            client.sendBytes(endpointId, trimmedCommand.toByteArray(Charsets.UTF_8))
-        }.onSuccess {
-            _uiState.update {
-                it.copy(statusMessage = "Comando enviado para o outro aparelho.")
-            }
-        }.onFailure(::showError)
+        sendTransportBytes(
+            endpointId,
+            trimmedCommand.toByteArray(Charsets.UTF_8),
+            "Comando enviado para o outro aparelho."
+        )
     }
 
     fun sendFindDeviceCommand(trigger: FindDeviceTrigger, volumeScalar: Float = 1f) {
@@ -1577,9 +1733,156 @@ internal class NearbySessionController(
     }
 
     override fun onBytesPayloadReceived(endpointId: String, bytes: ByteArray) {
+        val packet = NearbyIdentitySecurity.parsePacket(bytes) ?: return rejectNearbyProtocol(endpointId)
+        when (packet.bodyCase) {
+            com.veyro.p2p.protocol.NearbySecurityPacket.BodyCase.IDENTITY_CLAIM ->
+                authenticateNearbyPeer(endpointId, packet.identityClaim)
+
+            com.veyro.p2p.protocol.NearbySecurityPacket.BodyCase.TRANSPORT_ENVELOPE ->
+                receiveNearbyEnvelope(endpointId, packet.transportEnvelope)
+
+            com.veyro.p2p.protocol.NearbySecurityPacket.BodyCase.BODY_NOT_SET,
+            null -> rejectNearbyProtocol(endpointId)
+        }
+    }
+
+    private fun authenticateNearbyPeer(
+        endpointId: String,
+        claim: com.veyro.p2p.protocol.NearbyIdentityClaim
+    ) {
+        val pending = pendingNearbyAuthentications[endpointId]
+            ?: return rejectNearbyProtocol(endpointId)
+        val verified = NearbyIdentitySecurity.verifyClaim(
+            claim,
+            pending.identity,
+            pending.authenticationDigits
+        )?.copy(displayName = pending.identity.trustedName)
+            ?: return rejectNearbyProtocol(endpointId)
+        val pinned = nearbyTrustStore.active(verified.deviceId)
+        if (pinned == null && !pending.userApproved) return rejectNearbyProtocol(endpointId)
+        if (pinned != null && !java.security.MessageDigest.isEqual(
+                pinned.identityPublicKeySpki,
+                verified.identityPublicKeySpki
+            )
+        ) return rejectNearbyProtocol(endpointId)
+        runCatching { nearbyTrustStore.trust(verified) }
+            .onFailure {
+                rejectNearbyProtocol(endpointId)
+                return
+            }
+        pendingNearbyAuthentications.remove(endpointId)
+        nearbyAuthenticationDigits.remove(endpointId)
+        authenticatedNearbyPeers[endpointId] = verified
+        val trustedDevice = ecosystemPreferences.rememberDevice(
+            pending.identity.trustedName,
+            verified.deviceId
+        )
+        _uiState.update { state ->
+            val endpoint = ConnectedEndpoint(
+                id = endpointId,
+                name = trustedDevice.deviceName,
+                stableDeviceId = verified.deviceId,
+                role = pending.role,
+                transport = EndpointTransport.NEARBY
+            )
+            val connected = state.connectedEndpoints.filterNot { it.id == endpointId } + endpoint
+            val selectNew = state.connectedEndpointId == null
+            state.copy(
+                role = pending.role,
+                connectionStage = ConnectionStage.CONNECTED,
+                pendingConnection = null,
+                connectedEndpoints = connected,
+                connectedEndpointId = if (selectNew) endpointId else state.connectedEndpointId,
+                connectedEndpointName = if (selectNew) endpoint.name else state.connectedEndpointName,
+                trustedDevices = ecosystemPreferences.trustedDevices(),
+                statusMessage = "${connected.size} aparelho(s) autenticado(s).",
+                errorMessage = null
+            )
+        }
+        val features = _uiState.value.featureSettings
+        if (features.batterySync) startBatterySync()
+        if (features.connectivitySync) startConnectivitySync()
+        if (features.ping) startPing()
+        if (features.notificationSync) startNotificationSync()
+        if (features.mediaControl) startMediaSync()
+        if (features.telephonySync) startTelephonySync()
+    }
+
+    private fun receiveNearbyEnvelope(endpointId: String, envelope: TransportEnvelope) {
+        val peer = authenticatedNearbyPeers[endpointId] ?: return rejectNearbyProtocol(endpointId)
+        val now = System.currentTimeMillis()
+        val destinations = envelope.destinationDeviceIdsList
+        val valid = envelope.protocolMajor == 1 &&
+            runCatching { UUID.fromString(envelope.messageId) }.isSuccess &&
+            envelope.originDeviceId == peer.deviceId &&
+            destinations.size == 1 && destinations.single() == cryptographicIdentity.deviceId &&
+            !envelope.authorizedBroadcast &&
+            envelope.payloadType == TransportPayloadType.APPLICATION_MESSAGE &&
+            envelope.createdAtUnixMs in 1..(now + MAXIMUM_LOGICAL_CLOCK_SKEW_MILLIS) &&
+            envelope.expiresAtUnixMs in envelope.createdAtUnixMs..(envelope.createdAtUnixMs +
+                LOGICAL_MESSAGE_VALIDITY_MILLIS) &&
+            envelope.expiresAtUnixMs >= now && envelope.remainingHops == 1 &&
+            envelope.senderEpoch > 0 && envelope.sequenceNumber > 0 &&
+            envelope.originAuthentication.size() == 64 &&
+            !envelope.encryptedPayload.isEmpty &&
+            DesktopApplicationCrypto.verify(envelope, peer)
+        if (!valid || !logicalSecurity.tryAccept(
+                peer.deviceId,
+                envelope.messageId,
+                envelope.senderEpoch,
+                envelope.sequenceNumber,
+                envelope.expiresAtUnixMs,
+                now
+            )
+        ) return
+        runCatching {
+            DesktopApplicationCrypto.decrypt(
+                envelope.encryptedPayload.toByteArray(),
+                peer.deviceId,
+                cryptographicIdentity
+            )
+        }.onSuccess { plaintext ->
+            handleTransportBytesReceived(endpointId, plaintext, ConnectionDataPlane.GOOGLE_NEARBY)
+            plaintext.fill(0)
+        }.onFailure { rejectNearbyProtocol(endpointId) }
+    }
+
+    private fun rejectNearbyProtocol(endpointId: String) {
+        pendingNearbyAuthentications.remove(endpointId)
+        nearbyAuthenticationDigits.remove(endpointId)
+        userApprovedNearbyEndpoints.remove(endpointId)
+        authenticatedNearbyPeers.remove(endpointId)
+        clientResult.getOrNull()?.disconnectFromEndpoint(endpointId)
+        _uiState.update {
+            it.copy(
+                connectionStage = ConnectionStage.ERROR,
+                errorMessage = "Mensagem Nearby rejeitada pela autenticação lógica."
+            )
+        }
+    }
+
+    private fun handleTransportBytesReceived(
+        endpointId: String,
+        bytes: ByteArray,
+        expectedDataPlane: ConnectionDataPlane
+    ) {
+        val endpoint = TransportBoundary.connectedEndpoint(endpointId, _uiState.value.connectedEndpoints)
+            ?: return
+        if (TransportBoundary.dataPlaneFor(endpoint) != expectedDataPlane) return
         val featureMessage = VeyroProtocolCodec.decodeFeatureMessage(bytes)
         if (featureMessage != null) {
             when (featureMessage.payloadCase) {
+                VeyroMessage.PayloadCase.GROUP_TOPOLOGY_EVENT -> {
+                    if (expectedDataPlane == ConnectionDataPlane.DESKTOP_WIFI &&
+                        endpoint.id.startsWith(DESKTOP_ENDPOINT_PREFIX) &&
+                        !endpoint.id.startsWith(DESKTOP_ROUTED_ENDPOINT_PREFIX)
+                    ) {
+                        runCatching {
+                            desktopInterop.updateGroupTopology(featureMessage.groupTopologyEvent)
+                        }.onFailure(::showFeatureError)
+                    }
+                }
+
                 VeyroMessage.PayloadCase.BATTERY_STATUS -> if (_uiState.value.featureSettings.batterySync)
                     updateRemoteBatteryStatus(endpointId, featureMessage.batteryStatus)
 
@@ -1633,6 +1936,11 @@ internal class NearbySessionController(
                         handleClipboardSyncEvent(endpointId, featureMessage.clipboardSyncEvent)
                     }
 
+                // Desktop file chunks use the same authenticated envelope but are
+                // currently consumed only by the Windows feature service. Android
+                // Nearby files use Payload.FILE plus authenticated v2 metadata.
+                VeyroMessage.PayloadCase.FILE_TRANSFER_EVENT -> Unit
+
                 VeyroMessage.PayloadCase.PAYLOAD_NOT_SET,
                 null -> Unit
             }
@@ -1642,6 +1950,9 @@ internal class NearbySessionController(
         val fileMetadata = FileMetadata.fromWireBytes(bytes)
         if (fileMetadata != null) {
             if (!_uiState.value.featureSettings.fileTransfer) return
+            if (!fileMetadataByPayloadId.containsKey(fileMetadata.payloadId) &&
+                fileMetadataByPayloadId.size >= MAXIMUM_PENDING_FILE_METADATA
+            ) return
             fileMetadataByPayloadId[fileMetadata.payloadId] = fileMetadata
             _uiState.update { state ->
                 state.copy(
@@ -1681,7 +1992,9 @@ internal class NearbySessionController(
     fun sendFile(uri: Uri) {
         if (!_uiState.value.featureSettings.fileTransfer) return
         val endpointId = _uiState.value.connectedEndpointId ?: return
-        if (_uiState.value.connectedEndpoints.firstOrNull { it.id == endpointId }?.transport == EndpointTransport.DESKTOP) {
+        val endpoint = TransportBoundary.connectedEndpoint(endpointId, _uiState.value.connectedEndpoints)
+            ?: return showMissingTransportEndpoint(endpointId)
+        if (TransportBoundary.dataPlaneFor(endpoint) == ConnectionDataPlane.DESKTOP_WIFI) {
             _uiState.update {
                 it.copy(errorMessage = "A transferência de arquivos com o Veyro Desktop será habilitada em uma próxima etapa.")
             }
@@ -1692,7 +2005,13 @@ internal class NearbySessionController(
             return
         }
 
-        runCatching { client.sendFile(endpointId, uri) }
+        val peer = authenticatedNearbyPeers[endpointId]
+            ?: return rejectNearbyProtocol(endpointId)
+        runCatching {
+            client.sendFile(endpointId, uri) { metadata ->
+                createNearbyEnvelopePayload(peer, metadata.toWireBytes())
+            }
+        }
             .onSuccess { metadata ->
                 fileMetadataByPayloadId[metadata.payloadId] = metadata
                 _uiState.update { state ->
@@ -1718,6 +2037,7 @@ internal class NearbySessionController(
         temporaryUri: Uri
     ) {
         if (!_uiState.value.featureSettings.fileTransfer) return
+        if (authenticatedNearbyPeers[endpointId] == null) return
         val metadata = fileMetadataByPayloadId[payloadId]
         _uiState.update { state ->
             val existingTransfer = state.rawFileTransfers.firstOrNull {
@@ -1758,6 +2078,7 @@ internal class NearbySessionController(
         status: Int
     ) {
         if (!_uiState.value.featureSettings.fileTransfer) return
+        if (authenticatedNearbyPeers[endpointId] == null) return
         val rawFileStatus = when (status) {
             PayloadTransferUpdate.Status.SUCCESS -> RawFileStatus.COMPLETED
             PayloadTransferUpdate.Status.CANCELED -> RawFileStatus.CANCELED
@@ -1844,7 +2165,7 @@ internal class NearbySessionController(
         remoteIdentity: EndpointIdentity
     ) {
         val state = _uiState.value
-        if (!state.ecosystemEnabled || state.connectedEndpoints.isNotEmpty() ||
+        if (!state.ecosystemEnabled || TransportBoundary.hasNearbySession(state.connectedEndpoints) ||
             state.pendingConnection != null ||
             !EndpointIdentity.shouldInitiate(localIdentity, remoteIdentity)
         ) {
@@ -1859,7 +2180,8 @@ internal class NearbySessionController(
                 )
             )
             val current = _uiState.value
-            if (current.ecosystemEnabled && current.connectedEndpoints.isEmpty() &&
+            if (current.ecosystemEnabled &&
+                !TransportBoundary.hasNearbySession(current.connectedEndpoints) &&
                 current.pendingConnection == null &&
                 current.discoveredEndpoints.any { it.id == endpointId }
             ) {
@@ -1902,11 +2224,13 @@ internal class NearbySessionController(
 
     private fun scheduleRadioRestart() {
         if (!_uiState.value.ecosystemEnabled) return
+        if (!TransportBoundary.shouldRunNearbyFallback(_uiState.value.connectedEndpoints)) return
         reconnectJob?.cancel()
         reconnectJob = controllerScope.launch {
             delay(RECONNECT_DELAY_MILLIS)
             if (_uiState.value.ecosystemEnabled &&
-                _uiState.value.connectedEndpoints.isEmpty() &&
+                TransportBoundary.shouldRunNearbyFallback(_uiState.value.connectedEndpoints) &&
+                !TransportBoundary.hasNearbySession(_uiState.value.connectedEndpoints) &&
                 _uiState.value.pendingConnection == null
             ) {
                 applyRadioPolicy()
@@ -1919,22 +2243,31 @@ internal class NearbySessionController(
         radioDutyCycleJob = null
         val state = _uiState.value
         val client = clientResult.getOrNull() ?: return
-        if (!state.ecosystemEnabled || state.connectedEndpoints.isNotEmpty()) {
+        if (!TransportBoundary.shouldRunNearbyFallback(state.connectedEndpoints)) {
+            stopRadioOperations(client)
+            return
+        }
+        if (!state.ecosystemEnabled || TransportBoundary.hasNearbySession(state.connectedEndpoints)) {
             if (!state.ecosystemEnabled) stopRadioOperations(client)
             return
         }
         if (state.energyMode == EnergyMode.BATTERY_SAVER && !screenInteractive) {
             radioDutyCycleJob = controllerScope.launch {
                 while (isActive && _uiState.value.ecosystemEnabled &&
-                    _uiState.value.connectedEndpoints.isEmpty()
+                    TransportBoundary.shouldRunNearbyFallback(_uiState.value.connectedEndpoints) &&
+                    !TransportBoundary.hasNearbySession(_uiState.value.connectedEndpoints)
                 ) {
                     startRadioPair()
                     delay(BATTERY_SAVER_ACTIVE_WINDOW_MILLIS)
                     stopRadioOperations(client)
                     _uiState.update {
-                        if (it.connectedEndpoints.isEmpty() && it.ecosystemEnabled) {
+                        if (!TransportBoundary.hasNearbySession(it.connectedEndpoints) &&
+                            it.ecosystemEnabled
+                        ) {
                             it.copy(
-                                connectionStage = ConnectionStage.ACTIVE,
+                                connectionStage = if (
+                                    TransportBoundary.desktopWifiSessions(it.connectedEndpoints).isNotEmpty()
+                                ) ConnectionStage.CONNECTED else ConnectionStage.ACTIVE,
                                 statusMessage = "Economia ativa; próxima varredura em breve."
                             )
                         } else {
@@ -1951,17 +2284,29 @@ internal class NearbySessionController(
 
     private fun startRadioPair() {
         val state = _uiState.value
-        if (!state.ecosystemEnabled || state.connectedEndpoints.isNotEmpty()) return
+        if (!state.ecosystemEnabled ||
+            !TransportBoundary.shouldRunNearbyFallback(state.connectedEndpoints) ||
+            TransportBoundary.hasNearbySession(state.connectedEndpoints)
+        ) return
         val client = clientResult.getOrNull() ?: return
         stopRadioOperations(client)
         cancelConnectionAttempts()
         endpointIdentities.clear()
-        _uiState.update {
-            it.copy(
+        _uiState.update { current ->
+            val hasDesktopWifi = TransportBoundary.desktopWifiSessions(
+                current.connectedEndpoints
+            ).isNotEmpty()
+            current.copy(
                 role = ConnectionRole.NONE,
-                connectionStage = ConnectionStage.ACTIVE,
-                discoveredEndpoints = emptyList(),
-                statusMessage = "Ecossistema ativo: visível e procurando ao mesmo tempo.",
+                connectionStage = if (hasDesktopWifi) {
+                    ConnectionStage.CONNECTED
+                } else {
+                    ConnectionStage.ACTIVE
+                },
+                discoveredEndpoints = current.discoveredEndpoints.filter {
+                    it.transport == EndpointTransport.DESKTOP
+                },
+                statusMessage = "Google Nearby procurando aparelhos Android; Desktop permanece no Wi-Fi seguro.",
                 errorMessage = null
             )
         }
@@ -1969,20 +2314,24 @@ internal class NearbySessionController(
         fun radioSucceeded() {
             successfulRadios += 1
             if (successfulRadios == 2) {
-                _uiState.update {
-                    it.copy(
-                        connectionStage = ConnectionStage.ACTIVE,
-                        statusMessage = "Ecossistema contínuo ativo; aguardando aparelhos próximos.",
+                _uiState.update { current ->
+                    current.copy(
+                        connectionStage = if (
+                            TransportBoundary.desktopWifiSessions(current.connectedEndpoints).isNotEmpty()
+                        ) ConnectionStage.CONNECTED else ConnectionStage.ACTIVE,
+                        statusMessage = "Google Nearby ativo para Android; Wi-Fi reservado ao Veyro Desktop.",
                         errorMessage = null
                     )
                 }
             }
         }
         fun radioFailed(error: Exception) {
-            _uiState.update {
-                it.copy(
-                    connectionStage = ConnectionStage.ACTIVE,
-                    statusMessage = "Um rádio não iniciou; nova tentativa será feita.",
+            _uiState.update { current ->
+                current.copy(
+                    connectionStage = if (
+                        TransportBoundary.desktopWifiSessions(current.connectedEndpoints).isNotEmpty()
+                    ) ConnectionStage.CONNECTED else ConnectionStage.ACTIVE,
+                    statusMessage = "Google Nearby não iniciou; o canal Wi-Fi Desktop não foi alterado.",
                     errorMessage = error.localizedMessage
                 )
             }
@@ -2011,7 +2360,6 @@ internal class NearbySessionController(
 
     private fun startBatterySync() {
         stopBatterySync()
-        if (clientResult.getOrNull() == null) return
 
         batterySyncJob = controllerScope.launch {
             batteryStatusMonitor.statusUpdates().collect { batteryStatus ->
@@ -2027,7 +2375,6 @@ internal class NearbySessionController(
 
     private fun startConnectivitySync() {
         stopConnectivitySync()
-        if (clientResult.getOrNull() == null) return
 
         connectivitySyncJob = controllerScope.launch {
             connectivityStatusMonitor.statusUpdates().collect { status ->
@@ -2075,7 +2422,6 @@ internal class NearbySessionController(
 
     private fun startNotificationSync() {
         stopNotificationSync()
-        if (clientResult.getOrNull() == null) return
 
         notificationSyncJob = controllerScope.launch {
             NotificationSyncBridge.activeNotifications().forEach { event ->
@@ -2094,7 +2440,6 @@ internal class NearbySessionController(
 
     private fun startTelephonySync() {
         stopTelephonySync()
-        if (clientResult.getOrNull() == null) return
         telephonyCallStateMonitor.start()
         telephonySyncJob = controllerScope.launch {
             TelephonySyncBridge.events.collect { event ->
@@ -2111,7 +2456,6 @@ internal class NearbySessionController(
 
     private fun startMediaSync() {
         stopMediaSync()
-        if (clientResult.getOrNull() == null) return
 
         mediaSessionCoordinator.start { event ->
             broadcastFeaturePayload(VeyroProtocolCodec.encodeMediaControlEvent(event))
@@ -2181,7 +2525,7 @@ internal class NearbySessionController(
     private fun rulesForEndpoint(endpointId: String): TrustedDeviceRules? {
         val state = _uiState.value
         val endpoint = state.connectedEndpoints.firstOrNull { it.id == endpointId } ?: return null
-        return ecosystemPreferences.rulesFor(endpoint.name)
+        return ecosystemPreferences.rulesForDevice(endpoint.stableDeviceId, endpoint.name)
     }
 
     private fun handleNotificationSyncEvent(endpointId: String, event: NotificationSyncEvent) {
@@ -2664,7 +3008,13 @@ internal class NearbySessionController(
                 if (documentUri != null && client != null &&
                     _uiState.value.featureSettings.fileTransfer && isNearbyEndpoint
                 ) {
-                    runCatching { client.sendFile(endpointId, documentUri) }
+                    val peer = authenticatedNearbyPeers[endpointId]
+                        ?: return rejectNearbyProtocol(endpointId)
+                    runCatching {
+                        client.sendFile(endpointId, documentUri) { metadata ->
+                            createNearbyEnvelopePayload(peer, metadata.toWireBytes())
+                        }
+                    }
                         .onSuccess { metadata ->
                             fileMetadataByPayloadId[metadata.payloadId] = metadata
                             _uiState.update { state ->
@@ -2733,32 +3083,72 @@ internal class NearbySessionController(
         bytes: ByteArray,
         successMessage: String? = null
     ) {
-        val endpoint = _uiState.value.connectedEndpoints.firstOrNull { it.id == endpointId }
-        if (endpoint?.transport == EndpointTransport.DESKTOP || endpointId.startsWith(DESKTOP_ENDPOINT_PREFIX)) {
-            controllerScope.launch(Dispatchers.IO) {
-                runCatching { desktopInterop.sendApplicationMessage(bytes) }
-                    .onSuccess {
-                        if (successMessage != null) {
-                            _uiState.update { it.copy(statusMessage = successMessage, errorMessage = null) }
+        val endpoint = TransportBoundary.connectedEndpoint(endpointId, _uiState.value.connectedEndpoints)
+            ?: return showMissingTransportEndpoint(endpointId)
+        when (TransportBoundary.dataPlaneFor(endpoint)) {
+            ConnectionDataPlane.DESKTOP_WIFI -> {
+                controllerScope.launch(Dispatchers.IO) {
+                    runCatching {
+                        desktopInterop.sendApplicationMessage(bytes, endpoint.stableDeviceId)
+                    }
+                        .onSuccess {
+                            if (successMessage != null) {
+                                _uiState.update { it.copy(statusMessage = successMessage, errorMessage = null) }
+                            }
                         }
+                        .onFailure(::showFeatureError)
+                }
+            }
+
+            ConnectionDataPlane.GOOGLE_NEARBY -> {
+                val client = clientResult.getOrElse { error ->
+                    showError(error)
+                    return
+                }
+                val peer = authenticatedNearbyPeers[endpointId]
+                    ?: return rejectNearbyProtocol(endpointId)
+                runCatching {
+                    client.sendBytes(endpointId, createNearbyEnvelopePayload(peer, bytes))
+                }
+                    .onSuccess { task ->
+                        task.addOnSuccessListener {
+                            _uiState.update {
+                                it.copy(statusMessage = successMessage, errorMessage = null)
+                            }
+                        }.addOnFailureListener(::showFeatureError)
                     }
                     .onFailure(::showFeatureError)
             }
-            return
         }
-        val client = clientResult.getOrElse { error ->
-            showError(error)
-            return
-        }
-        runCatching { client.sendBytes(endpointId, bytes) }
-            .onSuccess { task ->
-                task.addOnSuccessListener {
-                    _uiState.update {
-                        it.copy(statusMessage = successMessage, errorMessage = null)
-                    }
-                }.addOnFailureListener(::showFeatureError)
-            }
-            .onFailure(::showFeatureError)
+    }
+
+    private fun createNearbyEnvelopePayload(
+        peer: DesktopTrustedPeer,
+        bytes: ByteArray
+    ): ByteArray {
+        require(bytes.isNotEmpty())
+        val now = System.currentTimeMillis()
+        val encrypted = DesktopApplicationCrypto.encrypt(bytes, cryptographicIdentity, peer)
+        val builder = TransportEnvelope.newBuilder()
+            .setProtocolMajor(1)
+            .setProtocolMinor(0)
+            .setMessageId(UUID.randomUUID().toString())
+            .setOriginDeviceId(cryptographicIdentity.deviceId)
+            .addDestinationDeviceIds(peer.deviceId)
+            .setPayloadType(TransportPayloadType.APPLICATION_MESSAGE)
+            .setCreatedAtUnixMs(now)
+            .setExpiresAtUnixMs(now + LOGICAL_MESSAGE_VALIDITY_MILLIS)
+            .setRemainingHops(1)
+            .setSequenceNumber(logicalSecurity.nextSequence())
+            .setSenderEpoch(logicalSecurity.senderEpoch)
+            .setEncryptedPayload(com.google.protobuf.ByteString.copyFrom(encrypted))
+        val unsigned = builder.build()
+        val envelope = builder.setOriginAuthentication(
+            com.google.protobuf.ByteString.copyFrom(
+                DesktopApplicationCrypto.sign(unsigned, cryptographicIdentity)
+            )
+        ).build()
+        return NearbyIdentitySecurity.wrapEnvelope(envelope)
     }
 
     private fun broadcastFeaturePayload(bytes: ByteArray) {
@@ -2772,6 +3162,14 @@ internal class NearbySessionController(
             it.copy(
                 errorMessage = error.localizedMessage
                     ?: "Não foi possível enviar a mensagem da funcionalidade."
+            )
+        }
+    }
+
+    private fun showMissingTransportEndpoint(endpointId: String) {
+        _uiState.update {
+            it.copy(
+                errorMessage = "A sessão $endpointId não possui um transporte Veyro ativo."
             )
         }
     }
@@ -2875,10 +3273,11 @@ internal class NearbySessionController(
         } ?: return
         val temporaryUri = transfer.temporaryUri?.let(Uri::parse) ?: return
         val metadata = fileMetadataByPayloadId[payloadId] ?: return
+        val transferPeer = _uiState.value.connectedEndpoints.firstOrNull {
+            it.id == transfer.endpointId
+        }
         val autoAcceptFiles = ecosystemPreferences
-            .rulesFor(_uiState.value.connectedEndpoints.firstOrNull {
-                it.id == transfer.endpointId
-            }?.name)
+            .rulesForDevice(transferPeer?.stableDeviceId, transferPeer?.name)
             ?.autoAcceptFiles == true
         if (!autoAcceptFiles && !approvedFilePayloadIds.containsKey(payloadId)) {
             _uiState.update { state ->
@@ -2969,6 +3368,29 @@ internal class NearbySessionController(
 
     private fun desktopEndpointId(deviceId: String): String = DESKTOP_ENDPOINT_PREFIX + deviceId
 
+    private fun desktopRoutedEndpointId(deviceId: String): String =
+        DESKTOP_ROUTED_ENDPOINT_PREFIX + deviceId
+
+    private fun suspendNearbyForDesktopHub(nearbyEndpointIds: List<String>) {
+        reconnectJob?.cancel()
+        radioDutyCycleJob?.cancel()
+        radioDutyCycleJob = null
+        cancelConnectionAttempts()
+        val client = clientResult.getOrNull() ?: return
+        nearbyEndpointIds.forEach { endpointId ->
+            runCatching { client.disconnectFromEndpoint(endpointId) }
+        }
+        stopRadioOperations(client)
+    }
+
+    private fun resumeNearbyFallback() {
+        if (!_uiState.value.ecosystemEnabled ||
+            !TransportBoundary.shouldRunNearbyFallback(_uiState.value.connectedEndpoints)
+        ) return
+        reconnectJob?.cancel()
+        applyRadioPolicy()
+    }
+
     private fun stageForRole(role: ConnectionRole): ConnectionStage = when (role) {
         ConnectionRole.ADVERTISER -> ConnectionStage.ADVERTISING
         ConnectionRole.DISCOVERER -> ConnectionStage.DISCOVERING
@@ -2997,6 +3419,7 @@ internal class NearbySessionController(
 
     private companion object {
         const val DESKTOP_ENDPOINT_PREFIX = "desktop:"
+        const val DESKTOP_ROUTED_ENDPOINT_PREFIX = "desktop-route:"
         const val MAX_RECEIVED_COMMANDS = 50
         const val MAX_REMOTE_NOTIFICATIONS = 50
         const val MAX_REMOTE_TELECOMMUNICATION_EVENTS = 50
@@ -3016,6 +3439,10 @@ internal class NearbySessionController(
         const val MAX_CONTACT_VALUES = 20
         const val MAX_PENDING_CONTACTS = 20
         const val MAX_SEEN_CLIPBOARD_EVENTS = 128
+        const val MAXIMUM_DISCOVERED_ENDPOINTS = 128
+        const val MAXIMUM_PENDING_FILE_METADATA = 256
+        const val LOGICAL_MESSAGE_VALIDITY_MILLIS = 120_000L
+        const val MAXIMUM_LOGICAL_CLOCK_SKEW_MILLIS = 60_000L
         const val PING_TIMEOUT_MILLIS = 2 * 60 * 1000L
         const val PING_CONTINUOUS_INTERVAL_MILLIS = 10_000L
         const val PING_BALANCED_INTERVAL_MILLIS = 20_000L

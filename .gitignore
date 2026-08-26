@@ -1,0 +1,10 @@
+.gradle/
+.kotlin/
+.idea/
+build/
+local.properties
+*.iml
+.gh-config/
+.git-upload/
+release-artifacts/
+docs/TWO_DEVICE_TEST_PLAN.md

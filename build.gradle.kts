@@ -13,10 +13,11 @@ android {
 
     defaultConfig {
         applicationId = "com.veyro.p2p"
-        minSdk = 21
+        // Persistent transport-agnostic identity requires Android Keystore EC keys.
+        minSdk = 23
         targetSdk = 34
-        versionCode = 10
-        versionName = "0.1.10-alpha"
+        versionCode = 20
+        versionName = "0.2.0-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -98,7 +99,7 @@ dependencies {
     // Base for the P2P transfer workflow implemented in later phases.
     implementation("com.google.android.gms:play-services-nearby:18.5.0")
     implementation("com.google.protobuf:protobuf-javalite:4.29.3")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.84")
 
     testImplementation("junit:junit:4.13.2")
 }

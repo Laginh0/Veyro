@@ -57,6 +57,7 @@ internal object DesktopInteropProtocol {
             output.writeInt(offer.tcpPort)
             output.writeLengthPrefixed(offer.tlsAlpn.toByteArray())
             output.writeLengthPrefixed(offer.resumeToken.toByteArray())
+            output.writeLengthPrefixed(offer.targetDeviceId.toByteArray())
         }
         buffer.toByteArray()
     }

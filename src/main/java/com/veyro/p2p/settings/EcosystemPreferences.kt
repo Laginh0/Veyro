@@ -31,7 +31,8 @@ enum class AppLanguage {
 data class TrustedDeviceRules(
     val deviceName: String,
     val autoAcceptFiles: Boolean = false,
-    val allowFindDevice: Boolean = false
+    val allowFindDevice: Boolean = false,
+    val deviceId: String = ""
 )
 
 data class FeatureSettings(
@@ -89,7 +90,7 @@ class EcosystemPreferences(context: Context) {
 
     fun localDeviceId(): String {
         return preferences.getString(KEY_LOCAL_DEVICE_ID, null)
-            ?: UUID.randomUUID().toString().replace("-", "").take(8).also { generated ->
+            ?: UUID.randomUUID().toString().replace("-", "").take(16).also { generated ->
                 preferences.edit().putString(KEY_LOCAL_DEVICE_ID, generated).apply()
             }
     }
@@ -102,6 +103,18 @@ class EcosystemPreferences(context: Context) {
 
     fun setEcosystemEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_ECOSYSTEM_ENABLED, enabled).apply()
+    }
+
+    @Synchronized
+    fun nextSenderEpoch(): Long {
+        val previous = preferences.getLong(KEY_SENDER_EPOCH, 0L)
+        check(previous < Long.MAX_VALUE) { "A época lógica do protocolo foi esgotada." }
+        val now = System.currentTimeMillis().coerceAtLeast(1L)
+        val next = maxOf(now, previous + 1L)
+        check(preferences.edit().putLong(KEY_SENDER_EPOCH, next).commit()) {
+            "Não foi possível persistir a época lógica do protocolo."
+        }
+        return next
     }
 
     fun energyMode(): EnergyMode = EnergyMode.fromStored(
@@ -161,14 +174,26 @@ class EcosystemPreferences(context: Context) {
     }
 
     @Synchronized
-    fun trustedDevices(): List<TrustedDeviceRules> = deviceNames().mapNotNull { name ->
-        rulesFor(name)
+    fun trustedDevices(): List<TrustedDeviceRules> = buildList {
+        addAll(deviceIds().mapNotNull(::rulesForDeviceId))
+        addAll(deviceNames().mapNotNull(::rulesFor).filter { legacy ->
+            none { it.deviceName == legacy.deviceName }
+        })
     }.sortedBy { it.deviceName.lowercase() }
 
     @Synchronized
-    fun rememberDevice(deviceName: String): TrustedDeviceRules {
+    fun rememberDevice(deviceName: String, deviceId: String = ""): TrustedDeviceRules {
         val cleanName = cleanDeviceName(deviceName)
         require(cleanName.isNotBlank()) { "O nome do aparelho não pode ficar vazio." }
+        val cleanId = cleanDeviceId(deviceId)
+        if (cleanId.isNotBlank()) {
+            val ids = deviceIds().toMutableSet().apply { add(cleanId) }
+            preferences.edit()
+                .putStringSet(KEY_TRUSTED_DEVICE_IDS, ids)
+                .putString(ruleKeyForId(cleanId, SUFFIX_NAME), cleanName)
+                .apply()
+            return rulesForDeviceId(cleanId) ?: TrustedDeviceRules(cleanName, deviceId = cleanId)
+        }
         val names = deviceNames().toMutableSet().apply { add(cleanName) }
         preferences.edit()
             .putStringSet(KEY_TRUSTED_DEVICE_NAMES, names)
@@ -180,23 +205,37 @@ class EcosystemPreferences(context: Context) {
     @Synchronized
     fun updateRules(rules: TrustedDeviceRules) {
         val cleanName = cleanDeviceName(rules.deviceName)
-        rememberDevice(cleanName)
+        val cleanId = cleanDeviceId(rules.deviceId)
+        rememberDevice(cleanName, cleanId)
+        val key: (String) -> String = if (cleanId.isNotBlank()) {
+            { suffix -> ruleKeyForId(cleanId, suffix) }
+        } else {
+            { suffix -> ruleKey(cleanName, suffix) }
+        }
         preferences.edit()
-            .putBoolean(ruleKey(cleanName, SUFFIX_AUTO_FILES), rules.autoAcceptFiles)
-            .putBoolean(ruleKey(cleanName, SUFFIX_FIND_DEVICE), rules.allowFindDevice)
+            .putBoolean(key(SUFFIX_AUTO_FILES), rules.autoAcceptFiles)
+            .putBoolean(key(SUFFIX_FIND_DEVICE), rules.allowFindDevice)
             .apply()
     }
 
     @Synchronized
     fun removeDevice(deviceName: String) {
         val cleanName = cleanDeviceName(deviceName)
+        val removedIds = deviceIds().filter { rulesForDeviceId(it)?.deviceName == cleanName }
+        val ids = deviceIds().toMutableSet().apply { removeAll(removedIds.toSet()) }
         val names = deviceNames().toMutableSet().apply { remove(cleanName) }
-        preferences.edit()
+        val editor = preferences.edit()
             .putStringSet(KEY_TRUSTED_DEVICE_NAMES, names)
+            .putStringSet(KEY_TRUSTED_DEVICE_IDS, ids)
             .remove(ruleKey(cleanName, SUFFIX_NAME))
             .remove(ruleKey(cleanName, SUFFIX_AUTO_FILES))
             .remove(ruleKey(cleanName, SUFFIX_FIND_DEVICE))
-            .apply()
+        removedIds.forEach { id ->
+            editor.remove(ruleKeyForId(id, SUFFIX_NAME))
+                .remove(ruleKeyForId(id, SUFFIX_AUTO_FILES))
+                .remove(ruleKeyForId(id, SUFFIX_FIND_DEVICE))
+        }
+        editor.apply()
     }
 
     fun rulesFor(deviceName: String?): TrustedDeviceRules? {
@@ -217,15 +256,47 @@ class EcosystemPreferences(context: Context) {
         )
     }
 
+    fun rulesForDevice(deviceId: String?, deviceName: String? = null): TrustedDeviceRules? {
+        val cleanId = cleanDeviceId(deviceId.orEmpty())
+        if (cleanId.isBlank()) return null
+        return rulesForDeviceId(cleanId)?.let { stored ->
+            if (deviceName.isNullOrBlank()) stored else stored.copy(deviceName = cleanDeviceName(deviceName))
+        }
+    }
+
+    private fun rulesForDeviceId(deviceId: String): TrustedDeviceRules? {
+        if (deviceId !in deviceIds()) return null
+        val name = preferences.getString(ruleKeyForId(deviceId, SUFFIX_NAME), null)
+            ?.let(::cleanDeviceName)
+            ?.takeIf(String::isNotBlank)
+            ?: return null
+        return TrustedDeviceRules(
+            deviceName = name,
+            autoAcceptFiles = preferences.getBoolean(ruleKeyForId(deviceId, SUFFIX_AUTO_FILES), false),
+            allowFindDevice = preferences.getBoolean(ruleKeyForId(deviceId, SUFFIX_FIND_DEVICE), false),
+            deviceId = deviceId
+        )
+    }
+
     private fun deviceNames(): Set<String> = preferences
         .getStringSet(KEY_TRUSTED_DEVICE_NAMES, emptySet())
         ?.toSet()
         .orEmpty()
 
+    private fun deviceIds(): Set<String> = preferences
+        .getStringSet(KEY_TRUSTED_DEVICE_IDS, emptySet())
+        ?.toSet()
+        .orEmpty()
+
     private fun cleanDeviceName(value: String): String = value.trim().take(MAX_DEVICE_NAME_LENGTH)
+
+    private fun cleanDeviceId(value: String): String = value.trim().take(MAX_DEVICE_ID_LENGTH)
 
     private fun ruleKey(deviceName: String, suffix: String): String =
         "device_${deviceName.sha256().take(24)}_$suffix"
+
+    private fun ruleKeyForId(deviceId: String, suffix: String): String =
+        "logical_${deviceId.sha256().take(24)}_$suffix"
 
     private fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
         .digest(lowercase().toByteArray(Charsets.UTF_8))
@@ -235,6 +306,7 @@ class EcosystemPreferences(context: Context) {
         const val PREFERENCES_NAME = "veyro_ecosystem"
         const val KEY_LOCAL_DEVICE_ID = "local_device_id"
         const val KEY_ECOSYSTEM_ENABLED = "ecosystem_enabled"
+        const val KEY_SENDER_EPOCH = "logical_sender_epoch_v1"
         const val KEY_ENERGY_MODE = "energy_mode"
         const val KEY_APP_LANGUAGE = "app_language"
         const val KEY_FEATURE_FILES = "feature_files"
@@ -254,9 +326,11 @@ class EcosystemPreferences(context: Context) {
         const val KEY_FEATURE_REMOTE_FILES = "feature_remote_files"
         const val KEY_FEATURE_CLIPBOARD = "feature_clipboard"
         const val KEY_TRUSTED_DEVICE_NAMES = "trusted_device_names"
+        const val KEY_TRUSTED_DEVICE_IDS = "trusted_device_ids_v2"
         const val SUFFIX_NAME = "name"
         const val SUFFIX_AUTO_FILES = "auto_files"
         const val SUFFIX_FIND_DEVICE = "find_device"
         const val MAX_DEVICE_NAME_LENGTH = 120
+        const val MAX_DEVICE_ID_LENGTH = 128
     }
 }

@@ -2,11 +2,11 @@
 
 Veyro is a peer-to-peer ecosystem that connects nearby devices directly, without requiring a central cloud service to transport data. Every device can discover, receive, and send information through the same interface, with no fixed sender or receiver role.
 
-> Current status: **Alpha 0.1.10**. This version introduces dedicated full-screen feature pages, redesigned remote media controls, synchronized artwork and playback progress, remote media notifications, and per-stream audio controls.
+> Current status: **Alpha 0.2.0**. This version gives every feature a dedicated, responsive full-screen workspace and hardens identity, authorization, replay protection, transport failover, and file integrity across Nearby and Veyro Desktop routes.
 
 > Debug builds expose disconnected feature previews for interface validation. Pairing still requires bilateral PIN confirmation, and Release builds do not include the disconnected preview mode.
 
-This repository contains the standalone Android project. The Mobile protocol contracts are bundled under `src/main/proto/` so the project builds independently.
+This folder is the standalone Android project. Its versioned Protobuf contracts are included in `src/main/proto/` so the published Mobile repository builds independently.
 
 ## Key features
 
@@ -52,7 +52,7 @@ The lower-capacity device initiates the connection toward the higher-capacity de
 
 After the first connection defines the topology, a device keeps one role for that session: an advertiser acts as the hub and may accept multiple satellites, while a discoverer acts as a satellite and connects to one hub. Controls and remote state are scoped to the active device selected in the interface; periodic local reports are delivered independently to every connected endpoint.
 
-After the first PIN confirmation, Trust Hub recognizes the device. If connectivity is lost, the foreground service remains available and attempts to reconnect. When enabled, the ecosystem can also resume after an Android restart or an app update.
+After the first PIN confirmation, Trust Hub pins the peer's P-256 identity key. Every later Nearby connection exchanges a signed identity claim bound to that connection's authentication digits before application data is accepted. If connectivity is lost, the foreground service remains available and attempts to reconnect. When enabled, the ecosystem can also resume after an Android restart or an app update.
 
 ## Power modes
 
@@ -67,6 +67,9 @@ During a file transfer, Veyro temporarily adds the Android data synchronization 
 ## Security and privacy
 
 - The first connection requires users to compare the same PIN on both devices.
+- Nearby endpoint IDs and display names never define identity. The persistent P-256 key is pinned, and a matching signed claim is required on every connection.
+- Nearby and Desktop relay messages use the same signed, end-to-end encrypted logical envelope with a message ID, sender epoch, sequence, expiry, destination, and bounded replay cache.
+- A Desktop may advertise a route to another Android only when that Android key is already pinned locally. This preserves routing authority without granting the Desktop identity authority.
 - Files from unknown devices wait for local approval.
 - Trust Hub permissions are configured independently for every known device.
 - Every remote SMS request requires confirmation on the device that will send it.
@@ -79,6 +82,9 @@ During a file transfer, Veyro temporarily adds the Android data synchronization 
 - Android-to-Android communication continues to travel directly through Nearby Connections.
 - Android-to-Windows communication uses BLE/GATT for discovery and pairing, then Wi-Fi Direct and mutual TLS for the fast channel. It does not require a router or local Wi-Fi network. See [`docs/DESKTOP_INTEROPERABILITY.md`](docs/DESKTOP_INTEROPERABILITY.md).
 - Wi-Fi Direct recovery resets only the P2P group. Veyro never disables, disconnects, or denies the device's normal Wi-Fi connection.
+- Bouncy Castle is pinned to 1.84, the first line used by Veyro that includes the fix for CVE-2026-5588.
+
+The security improvements, delivery guarantees, and remaining risks for this release are documented in [`docs/SECURITY_IMPROVEMENTS_0.2.0_ALPHA.md`](docs/SECURITY_IMPROVEMENTS_0.2.0_ALPHA.md).
 
 ## Permissions
 
@@ -101,7 +107,7 @@ Denying an optional permission does not prevent basic file transfers.
 
 ## Requirements
 
-- Android 5.0 or newer (`minSdk 21`).
+- Android 6.0 or newer (`minSdk 23`), required for the persistent Android Keystore EC identity.
 - Google Play Services with Nearby Connections support.
 - Bluetooth and Wi-Fi available on the device.
 - Android Studio or JDK 17 to build the project.
@@ -140,7 +146,7 @@ The project includes:
 ## Project structure
 
 ```text
-./
+mobile/
 ├── src/main/java/com/veyro/p2p/  Android application code
 ├── src/main/res/                 Android resources
 ├── src/test/                     Unit tests
@@ -156,7 +162,7 @@ Veyro is an independent project with its own interface, architecture, and roadma
 
 ## Current release
 
-The latest published test build is [Veyro Alpha 0.1.10](https://github.com/Laginh0/Veyro/releases/tag/v0.1.10-alpha). It keeps bilateral PIN confirmation enabled, presents every feature on its own full-screen page, and expands media continuity with synchronized metadata, artwork, progress, notification controls, output routes, and individual Android audio-stream volumes.
+The latest published test build is [Veyro Alpha 0.2.0](https://github.com/Laginh0/Veyro/releases/tag/v0.2.0-alpha). It keeps bilateral PIN confirmation enabled, introduces a consistent full-screen layout for every feature, and unifies signed and encrypted application envelopes across Nearby and Desktop relay routes.
 
 Alpha APKs use a development signing key. Confirm that an existing installation uses the same key before attempting an update.
 
@@ -165,4 +171,6 @@ Alpha APKs use a development signing key. Confirm that an existing installation 
 - The interface and protocol may change before the stable release.
 - Aggressive battery optimizations from some Android manufacturers may interrupt background services.
 - Full interoperability testing across different manufacturers and Android versions is still in progress.
+- At-most-once protection is currently process-scoped; durable transactional replay protection after a crash remains planned.
+- Per-peer Nearby fallback after a partial Desktop-star failure and relayed Android-to-Android file transfer are not complete.
 - This build is not intended for production distribution.

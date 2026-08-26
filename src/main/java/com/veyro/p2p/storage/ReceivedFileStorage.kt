@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 
 data class SavedFile(
     val uri: Uri,
@@ -28,6 +29,10 @@ class ReceivedFileStorage(private val context: Context) {
     ): SavedFile = withContext(Dispatchers.IO) {
         val displayName = sanitizeFileName(metadata.fileName, metadata.payloadId)
         val mimeType = metadata.mimeType.ifBlank { DEFAULT_MIME_TYPE }
+        require(metadata.sha256.size == 32 && MessageDigest.isEqual(
+            sha256(temporaryUri),
+            metadata.sha256
+        )) { "O arquivo recebido falhou na verificação SHA-256." }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             saveWithMediaStore(temporaryUri, displayName, mimeType, metadata.totalBytes)
@@ -131,6 +136,21 @@ class ReceivedFileStorage(private val context: Context) {
         check(expectedBytes <= 0L || copiedBytes == expectedBytes) {
             "Arquivo incompleto: $copiedBytes de $expectedBytes bytes copiados."
         }
+    }
+
+    private fun sha256(uri: Uri): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val input = contentResolver.openInputStream(uri)
+            ?: error("Não foi possível abrir o arquivo temporário para verificação.")
+        input.use { source ->
+            val buffer = ByteArray(COPY_BUFFER_SIZE)
+            while (true) {
+                val count = source.read(buffer)
+                if (count < 0) break
+                if (count > 0) digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest()
     }
 
     private fun uniqueDestination(directory: File, displayName: String): File {

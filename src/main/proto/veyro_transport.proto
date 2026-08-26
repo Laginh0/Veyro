@@ -24,6 +24,32 @@ message TransportEnvelope {
   string acknowledges_message_id = 12;
   bytes origin_authentication = 13;
   bytes encrypted_payload = 14;
+  // Monotonic per-origin process/session generation. Sequence numbers are scoped
+  // to this epoch and remain continuous while only the route changes.
+  uint64 sender_epoch = 15;
+}
+
+// Google Nearby authenticates a connection, but its endpoint identifier is not a
+// persistent Veyro identity.  Before application data is accepted, both Android
+// peers exchange one of these claims.  The signature is also bound to Nearby's
+// per-connection authentication digits by the application canonicalization.
+message NearbyIdentityClaim {
+  uint32 protocol_major = 1;
+  string device_id = 2;
+  string display_name = 3;
+  bytes identity_public_key_spki = 4;
+  bytes nonce = 5;
+  bytes signature = 6;
+}
+
+// A distinct wrapper prevents raw feature protobufs from bypassing the logical
+// authentication layer on the Nearby data plane.
+message NearbySecurityPacket {
+  bytes magic = 1;
+  oneof body {
+    NearbyIdentityClaim identity_claim = 10;
+    TransportEnvelope transport_envelope = 11;
+  }
 }
 
 // Application payloads are encrypted independently for every selected
@@ -137,6 +163,9 @@ message FastChannelOffer {
   string tls_alpn = 5;
   bytes resume_token = 6;
   bytes signature = 7;
+  // Required when a GATT notification can be observed by multiple trusted members.
+  // Non-target devices must ignore the offer without disturbing their active channel.
+  string target_device_id = 8;
 }
 
 message FastChannelAnswer {

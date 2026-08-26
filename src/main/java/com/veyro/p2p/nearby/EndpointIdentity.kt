@@ -6,6 +6,7 @@ import java.net.URLEncoder
 data class EndpointIdentity(
     val deviceId: String,
     val capacityScore: Int,
+    val identityKeyFingerprint: String,
     val displayName: String
 ) {
     val trustedName: String
@@ -15,7 +16,8 @@ data class EndpointIdentity(
         val prefix = listOf(
             WIRE_PREFIX,
             deviceId,
-            capacityScore.coerceIn(0, MAX_SCORE)
+            capacityScore.coerceIn(0, MAX_SCORE),
+            identityKeyFingerprint
         ).joinToString(WIRE_SEPARATOR) + WIRE_SEPARATOR
         val encodedName = buildString {
             val source = displayName.trim().ifBlank { "Veyro" }
@@ -39,21 +41,24 @@ data class EndpointIdentity(
     }
 
     companion object {
-        private const val WIRE_PREFIX = "VYR2"
+        private const val WIRE_PREFIX = "VYR3"
         private const val WIRE_SEPARATOR = "|"
         private const val MAX_SCORE = 999
         private const val MAX_WIRE_NAME_BYTES = 131
 
         fun parse(wireName: String): EndpointIdentity? {
-            val parts = wireName.split(WIRE_SEPARATOR, limit = 4)
-            if (parts.size != 4 || parts[0] != WIRE_PREFIX) return null
+            val parts = wireName.split(WIRE_SEPARATOR, limit = 5)
+            if (parts.size != 5 || parts[0] != WIRE_PREFIX) return null
             val deviceId = parts[1].takeIf { it.matches(Regex("[a-zA-Z0-9]{6,16}")) }
                 ?: return null
             val score = parts[2].toIntOrNull()?.takeIf { it in 0..MAX_SCORE } ?: return null
+            val fingerprint = parts[3].lowercase().takeIf {
+                it.matches(Regex("[0-9a-f]{16}"))
+            } ?: return null
             val displayName = runCatching {
-                URLDecoder.decode(parts[3], Charsets.UTF_8.name())
+                URLDecoder.decode(parts[4], Charsets.UTF_8.name())
             }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-            return EndpointIdentity(deviceId, score, displayName.take(80))
+            return EndpointIdentity(deviceId, score, fingerprint, displayName.take(80))
         }
 
         fun shouldInitiate(local: EndpointIdentity, remote: EndpointIdentity): Boolean {

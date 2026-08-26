@@ -122,6 +122,7 @@ internal object DesktopApplicationCrypto {
                 output.writeLong(envelope.createdAtUnixMs)
                 output.writeLong(envelope.expiresAtUnixMs)
                 output.writeLong(envelope.sequenceNumber)
+                output.writeLong(envelope.senderEpoch)
                 output.writeLengthPrefixed(envelope.acknowledgesMessageId.toByteArray(StandardCharsets.UTF_8))
                 output.writeLengthPrefixed(envelope.encryptedPayload.toByteArray())
             }

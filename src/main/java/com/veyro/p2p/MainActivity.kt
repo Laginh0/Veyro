@@ -231,6 +231,12 @@ private data class FeatureHubItem(
     val icon: ImageVector
 )
 
+private data class FeaturePageSpec(
+    val eyebrow: String,
+    val description: String,
+    val icon: ImageVector
+)
+
 private data class MediaControlRequest(
     val category: MediaEventCategory,
     val requestedVolume: Int = -1,
@@ -255,6 +261,24 @@ private fun featureHubTitle(key: String?): String = when (key) {
     "tablet" -> "Mesa digitalizadora"
     "remote_files" -> "Arquivos remotos"
     else -> "Recurso"
+}
+
+private fun featurePageSpec(key: String): FeaturePageSpec = when (key) {
+    "files" -> FeaturePageSpec("TRANSFERÊNCIA", "Envie e aprove arquivos com progresso claro em cada etapa.", Icons.Default.Description)
+    "clipboard" -> FeaturePageSpec("CONTINUIDADE", "Mantenha textos disponíveis entre seus aparelhos com controle explícito.", Icons.Default.ContentPaste)
+    "presentation" -> FeaturePageSpec("APRESENTAÇÃO", "Avance slides, escureça a tela e acompanhe o tempo sem distrações.", Icons.Default.Slideshow)
+    "remote_input" -> FeaturePageSpec("CONTROLE REMOTO", "Transforme esta tela em touchpad e teclado para o aparelho conectado.", Icons.Default.Keyboard)
+    "commands" -> FeaturePageSpec("AÇÕES SEGURAS", "Execute somente comandos nativos permitidos pelo Veyro.", Icons.Default.Terminal)
+    "battery" -> FeaturePageSpec("ENERGIA", "Acompanhe carga, alimentação e disponibilidade do outro aparelho.", Icons.Default.BatteryChargingFull)
+    "connectivity" -> FeaturePageSpec("REDE", "Veja o transporte ativo e a latência real do enlace P2P.", Icons.Default.CellWifi)
+    "find" -> FeaturePageSpec("LOCALIZAÇÃO", "Faça o aparelho conectado tocar e encerre o alerta daqui.", Icons.Default.MyLocation)
+    "notifications" -> FeaturePageSpec("COMUNICAÇÃO", "Visualize e descarte notificações sincronizadas com segurança.", Icons.Default.Notifications)
+    "telephony" -> FeaturePageSpec("TELEFONIA", "Acompanhe chamadas e solicite SMS com confirmação no destino.", Icons.Default.Sms)
+    "links" -> FeaturePageSpec("COMPARTILHAMENTO", "Envie links que só abrem depois de uma ação no aparelho remoto.", Icons.Default.InsertLink)
+    "contacts" -> FeaturePageSpec("CONTATOS", "Escolha o que compartilhar e confirme cada importação recebida.", Icons.Default.Contacts)
+    "tablet" -> FeaturePageSpec("CRIATIVIDADE", "Use toda a área disponível para toque, stylus, pressão e inclinação.", Icons.Default.Draw)
+    "remote_files" -> FeaturePageSpec("ARQUIVOS REMOTOS", "Navegue somente pela pasta que o outro aparelho decidiu expor.", Icons.Default.Folder)
+    else -> FeaturePageSpec("VEYRO", "Controle este recurso no aparelho selecionado.", Icons.Default.AutoAwesome)
 }
 
 class MainActivity : ComponentActivity() {
@@ -2889,6 +2913,14 @@ private fun FeatureHub(
     }
 
     val key = selectedKey ?: return
+    if (key != "media") {
+        FeaturePageIdentity(
+            spec = featurePageSpec(key),
+            targetName = uiState.connectedEndpointName,
+            previewMode = previewMode
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+    }
     when (key) {
                     "files" -> RawFilePanel(
                         transfers = uiState.rawFileTransfers,
@@ -2957,6 +2989,95 @@ private fun FeatureHub(
 }
 
 @Composable
+private fun FeaturePageIdentity(
+    spec: FeaturePageSpec,
+    targetName: String?,
+    previewMode: Boolean
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.primary
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = spec.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.size(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = spec.eyebrow,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (previewMode) "Pré-visualização" else
+                            targetName?.removePrefix("Veyro - ") ?: "Aguardando aparelho",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (previewMode) MaterialTheme.colorScheme.surfaceVariant
+                    else MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        text = if (previewMode) "DEMO" else "ATIVO",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (previewMode) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+            Text(
+                text = spec.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeatureControlSurface(
+    modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        content = { content() }
+    )
+}
+
+@Composable
 private fun FeatureHubButton(
     item: FeatureHubItem,
     selected: Boolean,
@@ -3008,31 +3129,53 @@ private fun ConnectedEndpointSelector(
     uiState: NearbyClientUiState,
     onSelect: (String) -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
             Text(
-                "Aparelhos conectados (${uiState.connectedEndpoints.size})",
-                fontWeight = FontWeight.SemiBold
+                "CONTROLAR APARELHO",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
             )
-            Text(
-                "Escolha o destino dos controles e dados exibidos abaixo.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            uiState.connectedEndpoints.forEach { endpoint ->
-                val selected = endpoint.id == uiState.connectedEndpointId
-                if (selected) {
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onSelect(endpoint.id) }
-                    ) { Text(endpoint.name.removePrefix("Veyro - ")) }
-                } else {
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onSelect(endpoint.id) }
-                    ) { Text(endpoint.name.removePrefix("Veyro - ")) }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                uiState.connectedEndpoints.take(3).forEach { endpoint ->
+                    val selected = endpoint.id == uiState.connectedEndpointId
+                    if (selected) {
+                        Button(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp),
+                            onClick = { onSelect(endpoint.id) }
+                        ) {
+                            Text(
+                                endpoint.name.removePrefix("Veyro - "),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        OutlinedButton(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp),
+                            onClick = { onSelect(endpoint.id) }
+                        ) {
+                            Text(
+                                endpoint.name.removePrefix("Veyro - "),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
             }
         }
     }
@@ -3044,8 +3187,8 @@ private fun ClipboardSyncPanel(
     onSync: () -> Unit,
     onAddQuickSettingsTile: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Sincronização de clipboard", fontWeight = FontWeight.SemiBold)
             Text(
                 "Sincroniza apenas texto, sem imagens, arquivos ou conteúdo formatado. " +
@@ -3080,8 +3223,8 @@ private fun ContactSyncPanel(
     onApprove: (String) -> Unit,
     onReject: (String) -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Sincronização de contatos", fontWeight = FontWeight.SemiBold)
             Text(
                 "Selecione um contato no Android. Fotos não são enviadas e toda importação exige confirmação local.",
@@ -3136,8 +3279,8 @@ private fun PresentationPanel(
             delay(1_000)
         }
     }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Modo de apresentação", fontWeight = FontWeight.SemiBold)
             Text(
                 if (running) "Cronômetro: ${formatMediaPosition(elapsedMillis)}" else "Cronômetro parado",
@@ -3217,8 +3360,8 @@ private fun DrawingTabletPanel(
     var lastPressure by remember { mutableStateOf(0f) }
     var stylusDetected by remember { mutableStateOf(false) }
     var toolLabel by remember { mutableStateOf("Toque ou use uma caneta") }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Mesa digitalizadora", fontWeight = FontWeight.SemiBold)
             Text(
                 "A área transmite posição, pressão, inclinação e o botão principal do stylus.",
@@ -3293,8 +3436,8 @@ private fun RemoteFilesPanel(
     onRequestDownload: (String) -> Unit
 ) {
     var history by remember { mutableStateOf(emptyList<String>()) }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Acesso remoto a arquivos", fontWeight = FontWeight.SemiBold)
             Text(
                 sharedFolderName?.let { "Pasta local compartilhada: $it" }
@@ -4007,13 +4150,8 @@ private fun FindMyDevicePanel(
     onStartRemoteAlarm: () -> Unit,
     onStopRemoteAlarm: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Encontrar meu dispositivo", fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -4067,13 +4205,8 @@ private fun NotificationSyncPanel(
     onOpenNotificationListenerSettings: () -> Unit,
     onDismissNotification: (String) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface(containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Notificações sincronizadas", fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -4135,13 +4268,8 @@ private fun NotificationSyncPanel(
 
 @Composable
 private fun BatteryStatusCard(status: RemoteBatteryStatus?) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface(containerColor = MaterialTheme.colorScheme.primaryContainer) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Bateria do outro aparelho", fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(4.dp))
             if (status == null) {
@@ -4176,13 +4304,8 @@ private fun ConnectivityStatusCard(
     showConnectivity: Boolean,
     showPing: Boolean
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Conectividade do outro aparelho", fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
             if (showConnectivity) {
@@ -4266,11 +4389,8 @@ private fun SafeCustomCommandsPanel(
     results: List<RemoteCustomCommandResult>,
     onCommand: (String) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Ações remotas seguras", fontWeight = FontWeight.SemiBold)
             Text(
                 "Somente ações nativas desta lista são aceitas; comandos shell são sempre bloqueados.",
@@ -4322,8 +4442,8 @@ private fun ShareUrlPanel(
     onShareUrl: (String) -> Unit
 ) {
     var url by rememberSaveable { mutableStateOf("") }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Compartilhar link", fontWeight = FontWeight.SemiBold)
             Text(
                 "Somente HTTP/HTTPS. O link abre apenas após um toque no aparelho de destino.",
@@ -4375,11 +4495,8 @@ private fun RemoteInputPanel(
         }
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface(containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Controle remoto", fontWeight = FontWeight.SemiBold)
             Text(
                 "Arraste para mover o cursor virtual; toque ou toque duas vezes para clicar.",
@@ -4474,13 +4591,8 @@ private fun CommandPanel(
 ) {
     var command by rememberSaveable { mutableStateOf("") }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Enviar comando", fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
@@ -4538,13 +4650,8 @@ private fun TelephonyPanel(
     var destination by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface(containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Telefonia e SMS", fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -4625,13 +4732,8 @@ private fun RawFilePanel(
     onApproveIncomingFile: (Long) -> Unit,
     onRejectIncomingFile: (Long) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    FeatureControlSurface(containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Text("Transferência de arquivo", fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(4.dp))
             Text(

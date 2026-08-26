@@ -11,6 +11,7 @@ import com.veyro.p2p.protocol.KeepAliveAcknowledgement
 import com.veyro.p2p.protocol.ResumeRequest
 import com.veyro.p2p.protocol.TransportEnvelope
 import com.veyro.p2p.protocol.TransportPayloadType
+import com.veyro.p2p.nearby.LogicalSecurityContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,7 +34,6 @@ import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.Date
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
@@ -43,22 +43,21 @@ import javax.net.ssl.X509ExtendedKeyManager
 import javax.net.ssl.X509TrustManager
 
 internal interface DesktopFastChannelListener {
-    fun onDesktopFastChannelConnected(peer: DesktopTrustedPeer)
-    fun onDesktopApplicationMessage(peer: DesktopTrustedPeer, bytes: ByteArray)
-    fun onDesktopFastChannelStatus(message: String, error: Throwable? = null)
-    fun onDesktopFastChannelDisconnected(peer: DesktopTrustedPeer)
+    fun onDesktopFastChannelConnected(source: DesktopFastChannel, peer: DesktopTrustedPeer)
+    fun onDesktopApplicationMessage(source: DesktopFastChannel, peer: DesktopTrustedPeer, bytes: ByteArray)
+    fun onDesktopFastChannelStatus(source: DesktopFastChannel, message: String, error: Throwable? = null)
+    fun onDesktopFastChannelDisconnected(source: DesktopFastChannel, peer: DesktopTrustedPeer)
 }
 
 internal class DesktopFastChannel(
     private val identity: DesktopIdentity,
     private val trustedPeer: DesktopTrustedPeer,
+    private val logicalSecurity: LogicalSecurityContext,
     private val scope: CoroutineScope,
     private val listener: DesktopFastChannelListener
 ) : AutoCloseable {
-    private val messageSequence = AtomicLong()
-    private val keepAliveSequence = AtomicLong()
-    private val receivedMessageIds = LinkedHashSet<String>()
-    private var lastReceivedMessageSequence = 0L
+    private val keepAliveSequence = java.util.concurrent.atomic.AtomicLong()
+    private val routedPeers = LinkedHashMap<String, DesktopTrustedPeer>()
     private var socket: SSLSocket? = null
     private var receiveJob: Job? = null
     private var keepAliveJob: Job? = null
@@ -98,15 +97,15 @@ internal class DesktopFastChannel(
                 performHandshake(activeSocket, offer)
                 connected = true
                 lastReceivedAt = System.currentTimeMillis()
-                listener.onDesktopFastChannelConnected(trustedPeer)
-                listener.onDesktopFastChannelStatus("Canal seguro ativo com ${trustedPeer.displayName}.")
+                listener.onDesktopFastChannelConnected(this@DesktopFastChannel, trustedPeer)
+                listener.onDesktopFastChannelStatus(this@DesktopFastChannel, "Canal seguro ativo com ${trustedPeer.displayName}.")
                 startKeepAlive()
                 receiveLoop(activeSocket)
             }.onFailure { error ->
                 if (connected || socket != null) {
-                    listener.onDesktopFastChannelStatus("O canal seguro com o Desktop foi interrompido.", error)
+                    listener.onDesktopFastChannelStatus(this@DesktopFastChannel, "O canal seguro com o Desktop foi interrompido.", error)
                 } else {
-                    listener.onDesktopFastChannelStatus("Não foi possível abrir o canal seguro com o Desktop.", error)
+                    listener.onDesktopFastChannelStatus(this@DesktopFastChannel, "Não foi possível abrir o canal seguro com o Desktop.", error)
                 }
             }
             val wasConnected = connected
@@ -114,27 +113,45 @@ internal class DesktopFastChannel(
             socket?.runCatching { close() }
             socket = null
             keepAliveJob?.cancel()
-            if (wasConnected) listener.onDesktopFastChannelDisconnected(trustedPeer)
+            if (wasConnected) listener.onDesktopFastChannelDisconnected(this@DesktopFastChannel, trustedPeer)
         }
     }
 
-    fun sendApplicationMessage(bytes: ByteArray) {
+    fun updateRoutedPeers(peers: List<DesktopTrustedPeer>) {
+        synchronized(routedPeers) {
+            routedPeers.clear()
+            peers.filterNot { it.isRevoked || it.deviceId == identity.deviceId || it.deviceId == trustedPeer.deviceId }
+                .forEach { routedPeers[it.deviceId] = it }
+        }
+    }
+
+    fun sendApplicationMessage(
+        bytes: ByteArray,
+        destinationDeviceId: String = trustedPeer.deviceId
+    ) {
         require(bytes.isNotEmpty() && bytes.size <= MAXIMUM_APPLICATION_PAYLOAD_SIZE)
         val activeSocket = checkNotNull(socket) { "O canal com o Desktop não está conectado" }
         check(connected)
+        val recipient = if (destinationDeviceId == trustedPeer.deviceId) {
+            trustedPeer
+        } else {
+            synchronized(routedPeers) { routedPeers[destinationDeviceId] }
+                ?: error("O destino não pertence à estrela Wi-Fi ativa")
+        }
         val now = System.currentTimeMillis()
-        val encrypted = DesktopApplicationCrypto.encrypt(bytes, identity, trustedPeer)
+        val encrypted = DesktopApplicationCrypto.encrypt(bytes, identity, recipient)
         val builder = TransportEnvelope.newBuilder()
             .setProtocolMajor(DesktopInteropProtocol.protocolMajor)
             .setProtocolMinor(DesktopInteropProtocol.protocolMinor)
             .setMessageId(UUID.randomUUID().toString())
             .setOriginDeviceId(identity.deviceId)
-            .addDestinationDeviceIds(trustedPeer.deviceId)
+            .addDestinationDeviceIds(recipient.deviceId)
             .setPayloadType(TransportPayloadType.APPLICATION_MESSAGE)
             .setCreatedAtUnixMs(now)
             .setExpiresAtUnixMs(now + MESSAGE_VALIDITY_MILLIS)
             .setRemainingHops(8)
-            .setSequenceNumber(messageSequence.incrementAndGet())
+            .setSequenceNumber(logicalSecurity.nextSequence())
+            .setSenderEpoch(logicalSecurity.senderEpoch)
             .setEncryptedPayload(ByteString.copyFrom(encrypted))
         val unsignedEnvelope = builder.build()
         val envelope = builder
@@ -227,8 +244,12 @@ internal class DesktopFastChannel(
 
     private fun handleEnvelope(envelope: TransportEnvelope) {
         val now = System.currentTimeMillis()
+        val originPeer = if (envelope.originDeviceId == trustedPeer.deviceId) {
+            trustedPeer
+        } else {
+            synchronized(routedPeers) { routedPeers[envelope.originDeviceId] }
+        } ?: return
         if (envelope.protocolMajor != DesktopInteropProtocol.protocolMajor ||
-            envelope.originDeviceId != trustedPeer.deviceId ||
             envelope.messageId.isBlank() ||
             envelope.createdAtUnixMs > now + MAXIMUM_CLOCK_SKEW_MILLIS ||
             envelope.expiresAtUnixMs < now ||
@@ -240,26 +261,28 @@ internal class DesktopFastChannel(
             envelope.encryptedPayload.isEmpty
         ) return
         val addressedToUs = identity.deviceId in envelope.destinationDeviceIdsList || envelope.authorizedBroadcast
-        if (!addressedToUs || !DesktopApplicationCrypto.verify(envelope, trustedPeer)) return
-        synchronized(receivedMessageIds) {
-            if (envelope.messageId in receivedMessageIds || envelope.sequenceNumber <= lastReceivedMessageSequence) return
-            receivedMessageIds += envelope.messageId
-            while (receivedMessageIds.size > MAXIMUM_TRACKED_MESSAGE_IDS) {
-                receivedMessageIds.remove(receivedMessageIds.first())
-            }
-            lastReceivedMessageSequence = envelope.sequenceNumber
-        }
+        if (!addressedToUs || !DesktopApplicationCrypto.verify(envelope, originPeer)) return
+        if (!logicalSecurity.tryAccept(
+                envelope.originDeviceId,
+            envelope.messageId,
+            envelope.senderEpoch,
+            envelope.sequenceNumber,
+                envelope.expiresAtUnixMs,
+                now
+            )
+        ) return
         runCatching {
             DesktopApplicationCrypto.decrypt(envelope.encryptedPayload.toByteArray(), envelope.originDeviceId, identity)
         }.onSuccess { plaintext ->
-            listener.onDesktopApplicationMessage(trustedPeer, plaintext)
+            listener.onDesktopApplicationMessage(this, originPeer, plaintext)
         }.onFailure { error ->
-            listener.onDesktopFastChannelStatus("Uma mensagem do Desktop falhou na verificação criptográfica.", error)
+            listener.onDesktopFastChannelStatus(this, "Uma mensagem da estrela Wi-Fi falhou na verificação criptográfica.", error)
         }
     }
 
     private fun validateOffer(offer: FastChannelOffer): Boolean {
         if (offer.deviceId != trustedPeer.deviceId ||
+            offer.targetDeviceId != identity.deviceId ||
             offer.sessionId.isBlank() ||
             offer.roleValue != 1 ||
             offer.tcpPort !in 1..65535 ||
@@ -351,6 +374,7 @@ internal class DesktopFastChannel(
         receiveJob?.cancel()
         socket?.runCatching { close() }
         socket = null
+        synchronized(routedPeers) { routedPeers.clear() }
     }
 
     private companion object {
@@ -359,7 +383,6 @@ internal class DesktopFastChannel(
         const val CONNECTION_TIMEOUT_MILLIS = 15_000L
         const val MESSAGE_VALIDITY_MILLIS = 120_000L
         const val MAXIMUM_CLOCK_SKEW_MILLIS = 60_000L
-        const val MAXIMUM_TRACKED_MESSAGE_IDS = 2_048
         const val MAXIMUM_APPLICATION_PAYLOAD_SIZE = 900 * 1024
     }
 }

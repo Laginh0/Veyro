@@ -18,5 +18,9 @@ object RemoteInputBridge {
     fun dispatch(event: RemoteInputEvent): Boolean =
         serviceReference.get()?.handleRemoteInput(event) == true
 
+    fun resetEphemeralState() {
+        serviceReference.get()?.resetRemoteInputState()
+    }
+
     fun isConnected(): Boolean = serviceReference.get() != null
 }

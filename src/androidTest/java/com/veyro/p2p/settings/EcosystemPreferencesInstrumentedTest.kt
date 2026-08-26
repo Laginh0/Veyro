@@ -36,6 +36,24 @@ class EcosystemPreferencesInstrumentedTest {
     }
 
     @Test
+    fun sameDisplayNameCannotInheritAnotherLogicalPeersPermissions() {
+        val preferences = EcosystemPreferences(ApplicationProvider.getApplicationContext())
+        val deviceName = "Veyro - Collision Test"
+        preferences.removeDevice(deviceName)
+        try {
+            val first = preferences.rememberDevice(deviceName, "logical-peer-a")
+            preferences.updateRules(first.copy(autoAcceptFiles = true, allowFindDevice = true))
+            val second = preferences.rememberDevice(deviceName, "logical-peer-b")
+
+            assertTrue(preferences.rulesForDevice("logical-peer-a")?.autoAcceptFiles == true)
+            assertFalse(second.autoAcceptFiles)
+            assertFalse(preferences.rulesForDevice("logical-peer-b")?.allowFindDevice == true)
+        } finally {
+            preferences.removeDevice(deviceName)
+        }
+    }
+
+    @Test
     fun energyModeAndLocalIdentityPersist() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val preferences = EcosystemPreferences(context)

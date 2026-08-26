@@ -7,24 +7,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EndpointIdentityTest {
+    private val fingerprint = "0123456789abcdef"
+
     @Test
     fun identityRoundTripsThroughEndpointName() {
-        val identity = EndpointIdentity("a1b2c3d4", 731, "Veyro - Telefone ç")
+        val identity = EndpointIdentity("a1b2c3d4", 731, fingerprint, "Veyro - Telefone ç")
         assertEquals(identity, EndpointIdentity.parse(identity.toWireName()))
     }
 
     @Test
     fun lowerCapacityInitiatesTowardHub() {
-        val lower = EndpointIdentity("aaaaaa11", 300, "Baixo")
-        val higher = EndpointIdentity("bbbbbb22", 800, "Alto")
+        val lower = EndpointIdentity("aaaaaa11", 300, fingerprint, "Baixo")
+        val higher = EndpointIdentity("bbbbbb22", 800, fingerprint, "Alto")
         assertTrue(EndpointIdentity.shouldInitiate(lower, higher))
         assertFalse(EndpointIdentity.shouldInitiate(higher, lower))
     }
 
     @Test
     fun deviceIdBreaksCapacityTieInOnlyOneDirection() {
-        val first = EndpointIdentity("aaaaaa11", 500, "A")
-        val second = EndpointIdentity("bbbbbb22", 500, "B")
+        val first = EndpointIdentity("aaaaaa11", 500, fingerprint, "A")
+        val second = EndpointIdentity("bbbbbb22", 500, fingerprint, "B")
         assertTrue(EndpointIdentity.shouldInitiate(first, second))
         assertFalse(EndpointIdentity.shouldInitiate(second, first))
     }
@@ -47,6 +49,7 @@ class EndpointIdentityTest {
         val identity = EndpointIdentity(
             deviceId = "abcdef12",
             capacityScore = 800,
+            identityKeyFingerprint = fingerprint,
             displayName = "Veyro - " + "📱 aparelho muito longo ".repeat(20)
         )
 

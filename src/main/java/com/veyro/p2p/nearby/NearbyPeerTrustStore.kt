@@ -1,42 +1,28 @@
-package com.veyro.p2p.desktopinterop
+package com.veyro.p2p.nearby
 
 import android.content.Context
 import android.util.Base64
+import com.veyro.p2p.desktopinterop.DesktopInteropProtocol
+import com.veyro.p2p.desktopinterop.DesktopTrustedPeer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 
-internal data class DesktopTrustedPeer(
-    val deviceId: String,
-    val displayName: String,
-    val identityPublicKeySpki: ByteArray,
-    val capabilities: Int,
-    val trustedAtMillis: Long,
-    val lastSeenAtMillis: Long,
-    val revokedAtMillis: Long?
-) {
-    val isRevoked: Boolean
-        get() = revokedAtMillis != null
-}
-
-internal class DesktopTrustStore(context: Context) {
+/** Persistent Trust Hub for Android logical peers, independent of Nearby endpoint IDs. */
+internal class NearbyPeerTrustStore(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
-        "veyro_desktop_interop",
+        "veyro_nearby_trust_v1",
         Context.MODE_PRIVATE
     )
 
     @Synchronized
-    fun active(deviceId: String): DesktopTrustedPeer? = load().firstOrNull {
+    fun active(deviceId: String): DesktopTrustedPeer? = load().singleOrNull {
         it.deviceId == deviceId && !it.isRevoked
     }
 
     @Synchronized
-    fun activeByDisplayName(displayName: String): DesktopTrustedPeer? = load().firstOrNull {
-        it.displayName == displayName && !it.isRevoked
-    }
-
-    @Synchronized
     fun trust(peer: DesktopTrustedPeer) {
+        require(peer.deviceId.isNotBlank() && peer.displayName.isNotBlank() && !peer.isRevoked)
         DesktopInteropProtocol.publicKey(peer.identityPublicKeySpki)
         val peers = load().toMutableList()
         val existing = peers.singleOrNull { it.deviceId == peer.deviceId }
@@ -56,16 +42,6 @@ internal class DesktopTrustStore(context: Context) {
     }
 
     @Synchronized
-    fun markSeen(deviceId: String) {
-        val peers = load().toMutableList()
-        val index = peers.indexOfFirst { it.deviceId == deviceId && !it.isRevoked }
-        if (index >= 0) {
-            peers[index] = peers[index].copy(lastSeenAtMillis = System.currentTimeMillis())
-            save(peers)
-        }
-    }
-
-    @Synchronized
     fun revokeByDisplayName(displayName: String): Boolean {
         val peers = load().toMutableList()
         val now = System.currentTimeMillis()
@@ -80,11 +56,8 @@ internal class DesktopTrustStore(context: Context) {
         return changed
     }
 
-    @Synchronized
-    fun allActive(): List<DesktopTrustedPeer> = load().filterNot(DesktopTrustedPeer::isRevoked)
-
     private fun load(): List<DesktopTrustedPeer> {
-        val encoded = preferences.getString(KEY_TRUSTED_PEERS, null) ?: return emptyList()
+        val encoded = preferences.getString(KEY_PEERS, null) ?: return emptyList()
         return runCatching {
             val array = JSONArray(encoded)
             buildList {
@@ -94,13 +67,13 @@ internal class DesktopTrustStore(context: Context) {
                     DesktopInteropProtocol.publicKey(publicKey)
                     add(
                         DesktopTrustedPeer(
-                            deviceId = item.getString("deviceId"),
-                            displayName = item.getString("displayName"),
-                            identityPublicKeySpki = publicKey,
-                            capabilities = item.getInt("capabilities"),
-                            trustedAtMillis = item.getLong("trustedAt"),
-                            lastSeenAtMillis = item.getLong("lastSeenAt"),
-                            revokedAtMillis = if (item.isNull("revokedAt")) null else item.getLong("revokedAt")
+                            item.getString("deviceId"),
+                            item.getString("displayName"),
+                            publicKey,
+                            0,
+                            item.getLong("trustedAt"),
+                            item.getLong("lastSeenAt"),
+                            if (item.isNull("revokedAt")) null else item.getLong("revokedAt")
                         )
                     )
                 }
@@ -116,18 +89,17 @@ internal class DesktopTrustStore(context: Context) {
                     .put("deviceId", peer.deviceId)
                     .put("displayName", peer.displayName)
                     .put("publicKey", Base64.encodeToString(peer.identityPublicKeySpki, Base64.NO_WRAP))
-                    .put("capabilities", peer.capabilities)
                     .put("trustedAt", peer.trustedAtMillis)
                     .put("lastSeenAt", peer.lastSeenAtMillis)
                     .put("revokedAt", peer.revokedAtMillis ?: JSONObject.NULL)
             )
         }
-        check(preferences.edit().putString(KEY_TRUSTED_PEERS, array.toString()).commit()) {
-            "Não foi possível persistir o Trust Hub do Desktop."
+        check(preferences.edit().putString(KEY_PEERS, array.toString()).commit()) {
+            "Não foi possível persistir o Trust Hub Nearby."
         }
     }
 
     private companion object {
-        const val KEY_TRUSTED_PEERS = "trusted_desktop_peers_v1"
+        const val KEY_PEERS = "logical_android_peers"
     }
 }
